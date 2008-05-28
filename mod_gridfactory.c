@@ -41,16 +41,17 @@
 module AP_MODULE_DECLARE_DATA authn_dbd_module;
 
 /* Keys in the has table of prepared statements. */
-static char* LABEL = "gridfactory_dbd_%d";
+static char* LABEL1 = "gridfactory_dbd_1";
+static char* LABEL2 = "gridfactory_dbd_2";
 
 /* SQL query to get all job records. */
-static char* JOB_REC_SELECT = "SELECT * FROM `jobDefinition`";
+static char* JOB_REC_SELECT_Q = "SELECT * FROM `jobDefinition`";
 
 /* Prepared statement string to get job record. */
-static char* JOB_REC_SELECT = "SELECT * FROM `jobDefinition` WHERE identifier = '?'";
+static char* JOB_REC_SELECT_PS = "SELECT * FROM `jobDefinition` WHERE identifier = ?";
 
 /* Prepared statement string to update job record. */
-static char* JOB_REC_UPDATE = "UPDATE `jobDefinition` SET status= '?', lastModified = '?' WHERE identifier = '?'";
+static char* JOB_REC_UPDATE_PS = "UPDATE `jobDefinition` SET status= ?, lastModified = ? WHERE identifier = ?";
 
 /* Optional function - look it up once in post_config. */
 static ap_dbd_t *(*dbd_acquire_fn)(request_rec*) = NULL;
@@ -89,10 +90,10 @@ config_perm(cmd_parms* cmd, void* mconfig, const char* arg)
  * DB preparation
  */
 
-static const char *dbd_prepare(cmd_parms *cmd, void *cfg)
+static void*
+dbd_prepare(cmd_parms *cmd, void *cfg)
 {
     static unsigned int label_num = 0;
-    char *label;
 
     if (dbd_prepare_fn == NULL) {
         dbd_prepare_fn = APR_RETRIEVE_OPTIONAL_FN(ap_dbd_prepare);
@@ -101,12 +102,13 @@ static const char *dbd_prepare(cmd_parms *cmd, void *cfg)
         }
         dbd_acquire_fn = APR_RETRIEVE_OPTIONAL_FN(ap_dbd_acquire);
     }
-    label = apr_psprintf(cmd->pool, LABEL, ++label_num);
 
-    dbd_prepare_fn(cmd->server, query, label);
+    dbd_prepare_fn(cmd->server, JOB_REC_SELECT_PS, LABEL1);
+    dbd_prepare_fn(cmd->server, JOB_REC_UPDATE_PS, LABEL2);
 
-    /* save the label here for our own use */
-    return ap_set_string_slot(cmd, cfg, label);
+    /* save the labels here for our own use */
+    ap_set_string_slot(cmd, cfg, LABEL1);
+    ap_set_string_slot(cmd, cfg, LABEL2);
 }
 static const command_rec command_table[] =
 {
@@ -128,8 +130,7 @@ static authn_status gridsite_db_handler(request_rec *r)
     ap_dbd_t *dbd = dbd_acquire_fn(r);
     if (dbd == NULL) {
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-                      "Failed to acquire database connection to look up "
-                      "user '%s'", user);
+                      "Failed to acquire database connection.");
         return AUTH_GENERAL_ERROR;
     }
 
@@ -138,11 +139,10 @@ static authn_status gridsite_db_handler(request_rec *r)
                       "No DefaultPermission has been specified");
     }
 
-    statement = apr_hash_get(dbd->prepared, conf->user, APR_HASH_KEY_STRING);
+    statement = apr_hash_get(dbd->prepared, LABEL1, APR_HASH_KEY_STRING);
     if (statement == NULL) {
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-                      "A prepared statement could not be found for "
-                      "AuthDBDUserPWQuery with the key '%s'", conf->user);
+                      "A prepared statement could not be found for getting job records.");
         return AUTH_GENERAL_ERROR;
     }
     if (apr_dbd_pvselect(dbd->driver, r->pool, dbd->handle, &res, statement,
