@@ -19,7 +19,8 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see http://www.gnu.org/licenses/.
  * 
- * This program is based loosely on mod_authn_dbd of the Apache foundation.
+ * This program is based on mod_authn_dbd of the Apache foundation,
+ * http://svn.apache.org/viewvc/httpd/httpd/trunk/modules/aaa/mod_authn_dbd.c?revision=658046&view=markup.
  * mod_authn_dbd is covered by the pache License, Version 2.0,
  * http://www.apache.org/licenses/LICENSE-2.0
  */
@@ -39,74 +40,92 @@
 
 module AP_MODULE_DECLARE_DATA authn_dbd_module;
 
-typedef struct {
-    const char *user;
-    const char *realm;
-} authn_dbd_conf;
-typedef struct {
-    const char *label;
-    const char *query;
-} authn_dbd_rec;
+/* Keys in the has table of prepared statements. */
+static char* LABEL = "gridfactory_dbd_%d";
 
-/* optional function - look it up once in post_config */
-static ap_dbd_t *(*authn_dbd_acquire_fn)(request_rec*) = NULL;
-static void (*authn_dbd_prepare_fn)(server_rec*, const char*, const char*) = NULL;
+/* SQL query to get all job records. */
+static char* JOB_REC_SELECT = "SELECT * FROM `jobDefinition`";
 
-static void *authn_dbd_cr_conf(apr_pool_t *pool, char *dummy)
+/* Prepared statement string to get job record. */
+static char* JOB_REC_SELECT = "SELECT * FROM `jobDefinition` WHERE identifier = '?'";
+
+/* Prepared statement string to update job record. */
+static char* JOB_REC_UPDATE = "UPDATE `jobDefinition` SET status= '?', lastModified = '?' WHERE identifier = '?'";
+
+/* Optional function - look it up once in post_config. */
+static ap_dbd_t *(*dbd_acquire_fn)(request_rec*) = NULL;
+static void (*dbd_prepare_fn)(server_rec*, const char*, const char*) = NULL;
+
+/**
+ * Configuration
+ */
+ 
+typedef struct {
+  char* perm_;
+} config_rec;
+
+static void*
+do_config(apr_pool_t* p, char* d)
 {
-    authn_dbd_conf *ret = apr_pcalloc(pool, sizeof(authn_dbd_conf));
-    return ret;
+  config_rec* conf = (config_rec*)apr_pcalloc(p, sizeof(config_rec));
+  conf->perm_ = 0;      /* null pointer */
+  return conf;
 }
-static void *authn_dbd_merge_conf(apr_pool_t *pool, void *BASE, void *ADD)
+
+static const char*
+config_perm(cmd_parms* cmd, void* mconfig, const char* arg)
 {
-    authn_dbd_conf *add = ADD;
-    authn_dbd_conf *base = BASE;
-    authn_dbd_conf *ret = apr_palloc(pool, sizeof(authn_dbd_conf));
-    ret->user = (add->user == NULL) ? base->user : add->user;
-    ret->realm = (add->realm == NULL) ? base->realm : add->realm;
-    return ret;
+  if (((config_rec*)mconfig)->perm_)
+    return "Default permission already set.";
+
+  ((config_rec*)mconfig)->perm_ = (char*) arg;
+  
+  dbd_prepare(cmd, mconfig);
+  
+  return 0;
 }
-static const char *authn_dbd_prepare(cmd_parms *cmd, void *cfg, const char *query)
+
+/**
+ * DB preparation
+ */
+
+static const char *dbd_prepare(cmd_parms *cmd, void *cfg)
 {
     static unsigned int label_num = 0;
     char *label;
 
-    if (authn_dbd_prepare_fn == NULL) {
-        authn_dbd_prepare_fn = APR_RETRIEVE_OPTIONAL_FN(ap_dbd_prepare);
-        if (authn_dbd_prepare_fn == NULL) {
-            return "You must load mod_dbd to enable AuthDBD functions";
+    if (dbd_prepare_fn == NULL) {
+        dbd_prepare_fn = APR_RETRIEVE_OPTIONAL_FN(ap_dbd_prepare);
+        if (dbd_prepare_fn == NULL) {
+            return "You must load mod_dbd to use mod_gridfactory";
         }
-        authn_dbd_acquire_fn = APR_RETRIEVE_OPTIONAL_FN(ap_dbd_acquire);
+        dbd_acquire_fn = APR_RETRIEVE_OPTIONAL_FN(ap_dbd_acquire);
     }
-    label = apr_psprintf(cmd->pool, "authn_dbd_%d", ++label_num);
+    label = apr_psprintf(cmd->pool, LABEL, ++label_num);
 
-    authn_dbd_prepare_fn(cmd->server, query, label);
+    dbd_prepare_fn(cmd->server, query, label);
 
     /* save the label here for our own use */
     return ap_set_string_slot(cmd, cfg, label);
 }
-static const command_rec authn_dbd_cmds[] =
+static const command_rec command_table[] =
 {
-    AP_INIT_TAKE1("AuthDBDUserPWQuery", authn_dbd_prepare,
-                  (void *)APR_OFFSETOF(authn_dbd_conf, user), ACCESS_CONF,
-                  "Query used to fetch password for user"),
-    AP_INIT_TAKE1("AuthDBDUserRealmQuery", authn_dbd_prepare,
-                  (void *)APR_OFFSETOF(authn_dbd_conf, realm), ACCESS_CONF,
-                  "Query used to fetch password for user+realm"),
+    AP_INIT_TAKE1("DefaultPermission", config_perm,
+                  NULL, OR_FILEINFO,
+                  "Default permission for directories with no .gacl file. Must be one of none, read or write."),
     {NULL}
 };
-static authn_status authn_dbd_password(request_rec *r, const char *user,
-                                       const char *password)
+static authn_status gridsite_db_handler(request_rec *r)
 {
     apr_status_t rv;
-    const char *dbd_password = NULL;
+    const char *job_id = NULL;
     apr_dbd_prepared_t *statement;
     apr_dbd_results_t *res = NULL;
     apr_dbd_row_t *row = NULL;
-
-    authn_dbd_conf *conf = ap_get_module_config(r->per_dir_config,
-                                                &authn_dbd_module);
-    ap_dbd_t *dbd = authn_dbd_acquire_fn(r);
+    config_rec* conf;
+    
+    conf = (config_rec*)ap_get_module_config(r->per_dir_config, &gridfactory_module);
+    ap_dbd_t *dbd = dbd_acquire_fn(r);
     if (dbd == NULL) {
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
                       "Failed to acquire database connection to look up "
@@ -114,10 +133,9 @@ static authn_status authn_dbd_password(request_rec *r, const char *user,
         return AUTH_GENERAL_ERROR;
     }
 
-    if (conf->user == NULL) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-                      "No AuthDBDUserPWQuery has been specified");
-        return AUTH_GENERAL_ERROR;
+    if (conf->perm_ == NULL) {
+        ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r,
+                      "No DefaultPermission has been specified");
     }
 
     statement = apr_hash_get(dbd->prepared, conf->user, APR_HASH_KEY_STRING);
@@ -143,35 +161,7 @@ static authn_status authn_dbd_password(request_rec *r, const char *user,
                           "in database", user);
             return AUTH_GENERAL_ERROR;
         }
-        if (dbd_password == NULL) {
-#if APU_MAJOR_VERSION > 1 || (APU_MAJOR_VERSION == 1 && APU_MINOR_VERSION >= 3)
-            /* add the rest of the columns to the environment */
-            int i = 1;
-            const char *name;
-            for (name = apr_dbd_get_name(dbd->driver, res, i);
-                 name != NULL;
-                 name = apr_dbd_get_name(dbd->driver, res, i)) {
-
-                char *str = apr_pstrcat(r->pool, AUTHN_PREFIX,
-                                        name,
-                                        NULL);
-                int j = sizeof(AUTHN_PREFIX)-1; /* string length of "AUTHENTICATE_", excluding the trailing NIL */
-                while (str[j]) {
-                    if (!apr_isalnum(str[j])) {
-                        str[j] = '_';
-                    }
-                    else {
-                        str[j] = apr_toupper(str[j]);
-                    }
-                    j++;
-                }
-                apr_table_set(r->subprocess_env, str,
-                              apr_dbd_get_entry(dbd->driver, row, i));
-                i++;
-            }
-#endif
-            dbd_password = apr_dbd_get_entry(dbd->driver, row, 0);
-        }
+        dbd_password = apr_dbd_get_entry(dbd->driver, row, 0);
         /* we can't break out here or row won't get cleaned up */
     }
 
@@ -187,109 +177,17 @@ static authn_status authn_dbd_password(request_rec *r, const char *user,
 
     return AUTH_GRANTED;
 }
-static authn_status authn_dbd_realm(request_rec *r, const char *user,
-                                    const char *realm, char **rethash)
+static void register_hooks(apr_pool_t *p)
 {
-    apr_status_t rv;
-    const char *dbd_hash = NULL;
-    apr_dbd_prepared_t *statement;
-    apr_dbd_results_t *res = NULL;
-    apr_dbd_row_t *row = NULL;
-
-    authn_dbd_conf *conf = ap_get_module_config(r->per_dir_config,
-                                                &authn_dbd_module);
-    ap_dbd_t *dbd = authn_dbd_acquire_fn(r);
-    if (dbd == NULL) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-                      "Failed to acquire database connection to look up "
-                      "user '%s:%s'", user, realm);
-        return AUTH_GENERAL_ERROR;
-    }
-    if (conf->realm == NULL) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-                      "No AuthDBDUserRealmQuery has been specified");
-        return AUTH_GENERAL_ERROR;
-    }
-    statement = apr_hash_get(dbd->prepared, conf->realm, APR_HASH_KEY_STRING);
-    if (statement == NULL) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-                      "A prepared statement could not be found for "
-                      "AuthDBDUserRealmQuery with the key '%s'", conf->realm);
-        return AUTH_GENERAL_ERROR;
-    }
-    if (apr_dbd_pvselect(dbd->driver, r->pool, dbd->handle, &res, statement,
-                              0, user, realm, NULL) != 0) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-                      "Query execution error looking up '%s:%s' "
-                      "in database", user, realm);
-        return AUTH_GENERAL_ERROR;
-    }
-    for (rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
-         rv != -1;
-         rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1)) {
-        if (rv != 0) {
-            ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r,
-                          "Error retrieving results while looking up '%s:%s' "
-                          "in database", user, realm);
-            return AUTH_GENERAL_ERROR;
-        }
-        if (dbd_hash == NULL) {
-#if APU_MAJOR_VERSION > 1 || (APU_MAJOR_VERSION == 1 && APU_MINOR_VERSION >= 3)
-            /* add the rest of the columns to the environment */
-            int i = 1;
-            const char *name;
-            for (name = apr_dbd_get_name(dbd->driver, res, i);
-                 name != NULL;
-                 name = apr_dbd_get_name(dbd->driver, res, i)) {
-
-                char *str = apr_pstrcat(r->pool, AUTHN_PREFIX,
-                                        name,
-                                        NULL);
-                int j = sizeof(AUTHN_PREFIX)-1; /* string length of "AUTHENTICATE_", excluding the trailing NIL */
-                while (str[j]) {
-                    if (!apr_isalnum(str[j])) {
-                        str[j] = '_';
-                    }
-                    else {
-                        str[j] = apr_toupper(str[j]);
-                    }
-                    j++;
-                }
-                apr_table_set(r->subprocess_env, str,
-                              apr_dbd_get_entry(dbd->driver, row, i));
-                i++;
-            }
-#endif
-            dbd_hash = apr_dbd_get_entry(dbd->driver, row, 0);
-        }
-        /* we can't break out here or row won't get cleaned up */
-    }
-
-    if (!dbd_hash) {
-        return AUTH_USER_NOT_FOUND;
-    }
-
-    *rethash = apr_pstrdup(r->pool, dbd_hash);
-    return AUTH_USER_FOUND;
+  ap_hook_handler(gridsite_db_handler, NULL, NULL, APR_HOOK_MIDDLE);
 }
-static void authn_dbd_hooks(apr_pool_t *p)
-{
-    static const authn_provider authn_dbd_provider = {
-        &authn_dbd_password,
-        &authn_dbd_realm
-    };
-
-    ap_register_auth_provider(p, AUTHN_PROVIDER_GROUP, "dbd",
-                              AUTHN_PROVIDER_VERSION,
-                              &authn_dbd_provider, AP_AUTH_INTERNAL_PER_CONF);
-}
-module AP_MODULE_DECLARE_DATA authn_dbd_module =
+module AP_MODULE_DECLARE_DATA gridfactory_module =
 {
     STANDARD20_MODULE_STUFF,
-    authn_dbd_cr_conf,
-    authn_dbd_merge_conf,
+    do_config,
     NULL,
     NULL,
-    authn_dbd_cmds,
-    authn_dbd_hooks
+    NULL,
+    command_table,
+    register_hooks
 };
