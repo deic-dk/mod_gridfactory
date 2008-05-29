@@ -110,6 +110,7 @@ dbd_prepare(cmd_parms *cmd, void *cfg)
     ap_set_string_slot(cmd, cfg, LABEL1);
     ap_set_string_slot(cmd, cfg, LABEL2);
 }
+
 static const command_rec command_table[] =
 {
     AP_INIT_TAKE1("DefaultPermission", config_perm,
@@ -117,11 +118,24 @@ static const command_rec command_table[] =
                   "Default permission for directories with no .gacl file. Must be one of none, read or write."),
     {NULL}
 };
+
+unsigned long countchr(const char *str, const char *ch)
+{
+  unsigned long count;
+  for ( ; (*str); ++str ){
+    if(*str == *ch){
+      ++count;
+    }
+  }
+  return count;
+}
+
 static authn_status gridsite_db_handler(request_rec *r)
 {
     apr_status_t rv;
     const char *job_id = NULL;
-    apr_dbd_prepared_t *statement;
+    apr_dbd_prepared_t *statement1;
+    apr_dbd_prepared_t *statement2;
     apr_dbd_results_t *res = NULL;
     apr_dbd_row_t *row = NULL;
     config_rec* conf;
@@ -138,6 +152,27 @@ static authn_status gridsite_db_handler(request_rec *r)
         ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r,
                       "No DefaultPermission has been specified");
     }
+    
+    /* GET /grid/db/jobs/ */
+    if (r->method_number == M_GET){
+      /* GET /grid/db/jobs/?status=ready|requested|running */
+      if(countchr(r->args, '=') > 0){
+      }
+    }
+    else if (r->method_number == M_GET){
+    }
+    /* GET /grid/db/jobs/UUID */
+    else if (r->method_number == M_GET){
+    }
+    /* PUT /grid/db/jobs/UUID/status */
+    else if (r->method_number == M_PUT){
+    }
+    else{
+      r->allowed = (apr_int64_t) ((1 < M_GET) | (1 < M_Put));
+      return DECLINED
+    }
+    
+    
 
     statement = apr_hash_get(dbd->prepared, LABEL1, APR_HASH_KEY_STRING);
     if (statement == NULL) {
