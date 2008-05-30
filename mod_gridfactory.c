@@ -40,6 +40,12 @@
 
 module AP_MODULE_DECLARE_DATA authn_dbd_module;
 
+/* The sub-directory containing the jobs. */
+static char* JOB_DIR = "/jobs/";
+
+/* The pseudo-file containing the job record. */
+static char* JOB_DB_REC = "/db_rec";
+
 /* Keys in the has table of prepared statements. */
 static char* LABEL1 = "gridfactory_dbd_1";
 static char* LABEL2 = "gridfactory_dbd_2";
@@ -57,6 +63,10 @@ static char* JOB_REC_UPDATE_PS = "UPDATE `jobDefinition` SET status= ?, lastModi
 static ap_dbd_t *(*dbd_acquire_fn)(request_rec*) = NULL;
 static void (*dbd_prepare_fn)(server_rec*, const char*, const char*) = NULL;
 
+/* Forward declaration */
+module AP_MODULE_DECLARE_DATA gridfactory_module;
+
+
 /**
  * Configuration
  */
@@ -73,25 +83,12 @@ do_config(apr_pool_t* p, char* d)
   return conf;
 }
 
-static const char*
-config_perm(cmd_parms* cmd, void* mconfig, const char* arg)
-{
-  if (((config_rec*)mconfig)->perm_)
-    return "Default permission already set.";
-
-  ((config_rec*)mconfig)->perm_ = (char*) arg;
-  
-  dbd_prepare(cmd, mconfig);
-  
-  return 0;
-}
-
 /**
  * DB preparation
  */
 
 static void*
-dbd_prepare(cmd_parms *cmd, void *cfg)
+dbd_prepare(cmd_parms* cmd, void* cfg)
 {
     static unsigned int label_num = 0;
 
@@ -109,6 +106,19 @@ dbd_prepare(cmd_parms *cmd, void *cfg)
     /* save the labels here for our own use */
     ap_set_string_slot(cmd, cfg, LABEL1);
     ap_set_string_slot(cmd, cfg, LABEL2);
+}
+
+static const char*
+config_perm(cmd_parms* cmd, void* mconfig, const char* arg)
+{
+  if (((config_rec*)mconfig)->perm_)
+    return "Default permission already set.";
+
+  ((config_rec*)mconfig)->perm_ = (char*) arg;
+  
+  dbd_prepare(cmd, mconfig);
+  
+  return 0;
 }
 
 static const command_rec command_table[] =
@@ -130,92 +140,178 @@ unsigned long countchr(const char *str, const char *ch)
   return count;
 }
 
-static authn_status gridsite_db_handler(request_rec *r)
+static int gridsite_db_handler(request_rec *r)
 {
-    apr_status_t rv;
-    const char *job_id = NULL;
-    apr_dbd_prepared_t *statement1;
-    apr_dbd_prepared_t *statement2;
-    apr_dbd_results_t *res = NULL;
-    apr_dbd_row_t *row = NULL;
+    char* job_id;
     config_rec* conf;
+    int path_len = strlen(r->path_info);
+    int uri_len = strlen(r->uri);
+    int jobdir_len = strlen(JOB_DIR);
+    int jobrec_len = strlen(JOB_DB_REC);
+    int ok = 0;
+    char* response;
+    
+    if (!r->handler || strcmp(r->handler, "gridfactory"))
+      return DECLINED;
     
     conf = (config_rec*)ap_get_module_config(r->per_dir_config, &gridfactory_module);
-    ap_dbd_t *dbd = dbd_acquire_fn(r);
-    if (dbd == NULL) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-                      "Failed to acquire database connection.");
-        return AUTH_GENERAL_ERROR;
-    }
-
+    
     if (conf->perm_ == NULL) {
         ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r,
                       "No DefaultPermission has been specified");
     }
     
-    /* GET /grid/db/jobs/ */
-    if (r->method_number == M_GET){
-      /* GET /grid/db/jobs/?status=ready|requested|running */
-      if(countchr(r->args, '=') > 0){
+    /* GET */
+    if (r->method_number == M_GET) {
+      if(apr_strnatcmp((r->path_info) + path_len - jobdir_len, JOB_DIR) == 0){
+        /* GET /grid/jobs/?status=ready|requested|running */
+        if(countchr(r->args, "=") > 0){
+        }
+        /* GET /grid/jobs/ */
+        else{
+          ap_set_content_type(r, "text/html;charset=ascii");
+          ap_rputs("<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01//EN\">\n", r);
+          ap_rputs("<html><head><title>Hello World!</title></head>", r);
+          ap_rputs("<body><h1>Hello World!</h1></body></html>", r);
+        }
+      }    
+      /* GET /grid/jobs/UUID/db_rec */
+      else if(path_len > jobdir_len + jobrec_len &&
+              apr_strnatcmp((r->path_info) + path_len - jobrec_len, JOB_DB_REC) == 0) {
+        apr_cpystrn(job_id, r->uri, uri_len - jobrec_len + 1);
+      }
+      else{
+        ok = -1;
       }
     }
-    else if (r->method_number == M_GET){
-    }
-    /* GET /grid/db/jobs/UUID */
-    else if (r->method_number == M_GET){
-    }
-    /* PUT /grid/db/jobs/UUID/status */
-    else if (r->method_number == M_PUT){
+    /* PUT /grid/db/jobs/UUID/db_rec */
+    else if (r->method_number == M_PUT) {
+      if(path_len > jobdir_len + jobrec_len &&
+              apr_strnatcmp((r->path_info) + path_len - jobrec_len, JOB_DB_REC) == 0) {
+        apr_cpystrn(job_id, r->uri, uri_len - jobrec_len + 1);
+      }
+      else{
+        ok = -1;
+      }
     }
     else{
-      r->allowed = (apr_int64_t) ((1 < M_GET) | (1 < M_Put));
-      return DECLINED
+      ok = -1;
+    }
+    if(ok < 0){
+      r->allowed = (apr_int64_t) ((1 < M_GET) | (1 < M_PUT));
+      return DECLINED;
     }
     
-    
+    return OK;
+}
 
+char* get_job_rec(request_rec *r, char* id){
+    apr_status_t rv;
+    apr_dbd_prepared_t *statement;
+    apr_dbd_results_t *res = NULL;
+    apr_dbd_row_t *row = NULL;
+    ap_dbd_t *dbd = dbd_acquire_fn(r);
+    char* key;
+    char* val;
+    int cols;
+    int i;
+    char* recs = 0;
+  
     statement = apr_hash_get(dbd->prepared, LABEL1, APR_HASH_KEY_STRING);
+    
     if (statement == NULL) {
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
                       "A prepared statement could not be found for getting job records.");
-        return AUTH_GENERAL_ERROR;
+        return NULL;
     }
+
+    if (dbd == NULL) {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                      "Failed to acquire database connection.");
+        return NULL;
+    }
+    
+    statement = apr_hash_get(dbd->prepared, LABEL1, APR_HASH_KEY_STRING);
+    
+    if (statement == NULL) {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                      "A prepared statement could not be found for getting job records.");
+        return NULL;
+    }
+    
     if (apr_dbd_pvselect(dbd->driver, r->pool, dbd->handle, &res, statement,
-                              0, user, NULL) != 0) {
+                              0, id, NULL) != 0) {
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
                       "Query execution error looking up '%s' "
-                      "in database", user);
-        return AUTH_GENERAL_ERROR;
+                      "in database", id);
+        return NULL;
     }
+} 
+
+char* get_job_recs(request_rec *r){
+    apr_status_t rv;
+    apr_dbd_prepared_t *statement;
+    apr_dbd_results_t *res = NULL;
+    apr_dbd_row_t *row = NULL;
+    ap_dbd_t *dbd = dbd_acquire_fn(r);
+    char* key;
+    char* val;
+    int cols;
+    int i;
+    char* recs = 0;
+    
+    if (dbd == NULL) {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                      "Failed to acquire database connection.");
+        return NULL;
+    }
+    
+    
+    if (apr_dbd_select(dbd->driver, r->pool, dbd->handle, &res, JOB_REC_SELECT_Q, 0) != 0) {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                      "Query execution error");
+        return NULL;
+    }
+    
+    cols = apr_dbd_num_cols(dbd->driver, res);
+    
+    /* The first row is the list of colums. */
+    for (i = 0 ; i < cols ; i++) {
+      *key = apr_dbd_get_name(dbd->driver, res, i);
+      recs = apr_pstrcat(r->pool, recs, key, NULL);
+      if(i < cols - 1){
+        recs = apr_pstrcat(r->pool, recs, "\t", NULL);
+      }
+    }
+        
     for (rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
          rv != -1;
          rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1)) {
         if (rv != 0) {
-            ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r,
-                          "Error retrieving results while looking up '%s' "
-                          "in database", user);
-            return AUTH_GENERAL_ERROR;
+            ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
+            return NULL;
         }
-        dbd_password = apr_dbd_get_entry(dbd->driver, row, 0);
+        recs = apr_pstrcat(r->pool, recs, '\n', NULL);
+        for (i = 0 ; i < cols ; i++) {
+          val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
+          recs = apr_pstrcat(r->pool, res, val, NULL);
+          if(i < cols - 1){
+            recs = apr_pstrcat(r->pool, recs, '\t', NULL);
+          }
+        }
         /* we can't break out here or row won't get cleaned up */
     }
+    return recs;
+} 
 
-    if (!dbd_password) {
-        return AUTH_USER_NOT_FOUND;
-    }
+char* update_job_rec(request_rec *r, char* id){
+} 
 
-    rv = apr_password_validate(password, dbd_password);
-
-    if (rv != APR_SUCCESS) {
-        return AUTH_DENIED;
-    }
-
-    return AUTH_GRANTED;
-}
 static void register_hooks(apr_pool_t *p)
 {
   ap_hook_handler(gridsite_db_handler, NULL, NULL, APR_HOOK_MIDDLE);
 }
+
 module AP_MODULE_DECLARE_DATA gridfactory_module =
 {
     STANDARD20_MODULE_STUFF,
@@ -226,3 +322,4 @@ module AP_MODULE_DECLARE_DATA gridfactory_module =
     command_table,
     register_hooks
 };
+

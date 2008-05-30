@@ -1,0 +1,39 @@
+******************
+***  mod_gacl  ***
+*  Apache module *
+******************
+
+by Frederik Orellana,
+Niels Bohr Institute,
+University of Copenhagen.
+ 
+*************************
+
+mod_gacl is an Apache-2 module for authentication and authorization via
+X.509 certificates.
+
+The module should be used together with mod_dav and mod_ssl. With these
+three modules you will have a file server with directory permissions set
+via GACL.
+
+The module is an extension of the module mod_auth_script, written by
+Shigeru Kanemoto <sgk@ppona.com>, Accense Technology Inc.
+(http://accense.com/).
+
+The GACL code is taken from the gridsite code (http://www.gridsite.org/),
+of Andrew McNab, University of Manchester.
+
+In order to build the source you must have development libraries of
+libxml2 and Apache-2 installed.
+A simple Makefile is provided for building a DSO module.
+To build on a UNIX-like system, type 'make'.
+
+To install the module either type 'make install' or simply copy
+".libs/mod_gacl.so" to your Apache modules directory.
+A sample Apache configuration file is provided ("grid.conf").
+You may want to copy this to your virtual hosts directory - and
+modify it to suit your Apache setup.
+You should also copy the sample VO script ("mk_vo.sh") to the
+location specified in the Apache configuration (/usr/local/bin).
+
+For more information, please consult the code.
