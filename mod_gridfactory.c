@@ -19,10 +19,21 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see http://www.gnu.org/licenses/.
  * 
- * This program is based on mod_authn_dbd of the Apache foundation,
+ * This program is based loosely on mod_authn_dbd of the Apache foundation,
  * http://svn.apache.org/viewvc/httpd/httpd/trunk/modules/aaa/mod_authn_dbd.c?revision=658046&view=markup.
  * mod_authn_dbd is covered by the pache License, Version 2.0,
  * http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ *******************************************************************************
+ * This module allows you to create a gridfactory web service for job pulling.
+ * It requires mod_dbm to be loaded and enabled for the Location /grid/jobs.
+ * 
+ * 
+ *  LoadModule gridfactory_module /usr/lib/apache2/modules/mod_gridfactory.so
+ *  <Location /grid/jobs>
+ *    SetHandler gridfactory
+ *  </Location>
+ * 
  */
 
 #include "ap_provider.h"
