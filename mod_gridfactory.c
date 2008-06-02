@@ -54,9 +54,6 @@ module AP_MODULE_DECLARE_DATA authn_dbd_module;
 /* The sub-directory containing the jobs. */
 static char* JOB_DIR = "/jobs/";
 
-/* The pseudo-file containing the job record. */
-static char* JOB_DB_REC = "/db_rec";
-
 /* Keys in the has table of prepared statements. */
 static char* LABEL1 = "gridfactory_dbd_1";
 static char* LABEL2 = "gridfactory_dbd_2";
@@ -159,7 +156,6 @@ static int gridsite_db_handler(request_rec *r)
     config_rec* conf;
     int uri_len = strlen(r->uri);
     int jobdir_len = strlen(JOB_DIR);
-    int jobrec_len = strlen(JOB_DB_REC);
     int ok = 0;
     char* response;
     
@@ -179,33 +175,32 @@ static int gridsite_db_handler(request_rec *r)
     /* GET */
     if (r->method_number == M_GET) {
       if(apr_strnatcmp((r->uri) + uri_len - jobdir_len, JOB_DIR) == 0){
-        /* GET /grid/jobs/?status=ready|requested|running */
+        /* GET /grid/db/jobs/?status=ready|requested|running */
         if(r->args && countchr(r->args, "=") > 0){
           ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "GET %s with args", r->uri);
         }
-        /* GET /grid/jobs/ */
+        /* GET /grid/db/jobs/ */
         else{
           ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "GET %s with no args", r->uri);
         }
       }    
-      /* GET /grid/jobs/UUID/db_rec */
-      else if(uri_len > jobdir_len + jobrec_len &&
-              apr_strnatcmp((r->uri) + uri_len - jobrec_len, JOB_DB_REC) == 0) {
-        /* job_uuid = "/grid/jobs/UUID" */
-        apr_cpystrn(job_uuid, r->uri, uri_len - jobrec_len + 1);
+      /* GET /grid/db/jobs/UUID */
+      else if(uri_len > jobdir_len) {
         /* job_uuid = "UUID" */
-        apr_cpystrn(job_uuid, memrchr(job_uuid, '/', uri_len) +1 , strlen(job_uuid) - jobdir_len);
+        job_uuid = memrchr(r->uri, '/', uri_len);
+        apr_cpystrn(job_uuid, job_uuid+1 , uri_len - 1);
         ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "job_uuid --> %s", job_uuid);
       }
       else{
         ok = -1;
       }
     }
-    /* PUT /grid/db/jobs/UUID/db_rec */
+    /* PUT /grid/db/jobs/UUID */
     else if (r->method_number == M_PUT) {
-      if(uri_len > jobdir_len + jobrec_len &&
-              apr_strnatcmp((r->path_info) + uri_len - jobrec_len, JOB_DB_REC) == 0) {
-        apr_cpystrn(job_uuid, memrchr(r->uri, '/', uri_len), uri_len - jobrec_len + 1);
+      if(uri_len > jobdir_len) {
+        job_uuid = memrchr(r->uri, '/', uri_len);
+        apr_cpystrn(job_uuid, job_uuid+1 , uri_len - 1);
+        ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "job_uuid --> %s", job_uuid);
       }
       else{
         ok = -1;
