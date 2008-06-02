@@ -68,7 +68,7 @@ static char* JOB_REC_SELECT_Q = "SELECT * FROM `jobDefinition`";
 static char* JOB_REC_SELECT_PS = "SELECT * FROM `jobDefinition` WHERE identifier = ?";
 
 /* Prepared statement string to update job record. */
-static char* JOB_REC_UPDATE_PS = "UPDATE `jobDefinition` SET status= ?, lastModified = ? WHERE identifier = ?";
+static char* JOB_REC_UPDATE_PS = "UPDATE `jobDefinition` SET csStatus= ?, lastModified = ? WHERE identifier = ?";
 
 /* Optional function - look it up once in post_config. */
 static ap_dbd_t *(*dbd_acquire_fn)(request_rec*) = NULL;
@@ -83,14 +83,14 @@ module AP_MODULE_DECLARE_DATA gridfactory_module;
  */
  
 typedef struct {
-  char* perm_;
+  char* ps_;
 } config_rec;
 
 static void*
 do_config(apr_pool_t* p, char* d)
 {
   config_rec* conf = (config_rec*)apr_pcalloc(p, sizeof(config_rec));
-  conf->perm_ = 0;      /* null pointer */
+  conf->ps_ = 0;      /* null pointer */
   return conf;
 }
 
@@ -120,21 +120,23 @@ dbd_prepare(cmd_parms* cmd, void* cfg)
 }
 
 static const char*
-config_perm(cmd_parms* cmd, void* mconfig, const char* arg)
+config_ps(cmd_parms* cmd, void* mconfig, const char* arg)
 {
-  if (((config_rec*)mconfig)->perm_)
-    return "Default permission already set.";
+  if (((config_rec*)mconfig)->ps_)
+    return "PrepareStatements already set.";
 
-  ((config_rec*)mconfig)->perm_ = (char*) arg;
+  ((config_rec*)mconfig)->ps_ = (char*) arg;
   
-  dbd_prepare(cmd, mconfig);
+  if(apr_strnatcasecmp(((config_rec*)mconfig)->ps_, "On") == 0){
+    dbd_prepare(cmd, mconfig);
+  }
   
   return 0;
 }
 
 static const command_rec command_table[] =
 {
-    AP_INIT_TAKE1("DefaultPermission", config_perm,
+    AP_INIT_TAKE1("PrepareStatements", config_ps,
                   NULL, OR_FILEINFO,
                   "Default permission for directories with no .gacl file. Must be one of none, read or write."),
     {NULL}
@@ -153,43 +155,47 @@ unsigned long countchr(const char *str, const char *ch)
 
 static int gridsite_db_handler(request_rec *r)
 {
-    char* job_id;
+    char* job_uuid;
     config_rec* conf;
-    int path_len = strlen(r->path_info);
     int uri_len = strlen(r->uri);
     int jobdir_len = strlen(JOB_DIR);
     int jobrec_len = strlen(JOB_DB_REC);
     int ok = 0;
     char* response;
     
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "handler %s", r->handler);
+
     if (!r->handler || strcmp(r->handler, "gridfactory"))
       return DECLINED;
     
     conf = (config_rec*)ap_get_module_config(r->per_dir_config, &gridfactory_module);
     
-    if (conf->perm_ == NULL) {
-        ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r,
-                      "No DefaultPermission has been specified");
+    if (conf->ps_ == NULL) {
+        ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "PrepareStatements not specified");
     }
     
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Request: %s", r->the_request);
+
     /* GET */
     if (r->method_number == M_GET) {
-      if(apr_strnatcmp((r->path_info) + path_len - jobdir_len, JOB_DIR) == 0){
+      if(apr_strnatcmp((r->uri) + uri_len - jobdir_len, JOB_DIR) == 0){
         /* GET /grid/jobs/?status=ready|requested|running */
-        if(countchr(r->args, "=") > 0){
+        if(r->args && countchr(r->args, "=") > 0){
+          ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "GET %s with args", r->uri);
         }
         /* GET /grid/jobs/ */
         else{
-          ap_set_content_type(r, "text/html;charset=ascii");
-          ap_rputs("<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01//EN\">\n", r);
-          ap_rputs("<html><head><title>Hello World!</title></head>", r);
-          ap_rputs("<body><h1>Hello World!</h1></body></html>", r);
+          ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "GET %s with no args", r->uri);
         }
       }    
       /* GET /grid/jobs/UUID/db_rec */
-      else if(path_len > jobdir_len + jobrec_len &&
-              apr_strnatcmp((r->path_info) + path_len - jobrec_len, JOB_DB_REC) == 0) {
-        apr_cpystrn(job_id, r->uri, uri_len - jobrec_len + 1);
+      else if(uri_len > jobdir_len + jobrec_len &&
+              apr_strnatcmp((r->uri) + uri_len - jobrec_len, JOB_DB_REC) == 0) {
+        /* job_uuid = "/grid/jobs/UUID" */
+        apr_cpystrn(job_uuid, r->uri, uri_len - jobrec_len + 1);
+        /* job_uuid = "UUID" */
+        apr_cpystrn(job_uuid, memrchr(job_uuid, '/', uri_len) +1 , strlen(job_uuid) - jobdir_len);
+        ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "job_uuid --> %s", job_uuid);
       }
       else{
         ok = -1;
@@ -197,9 +203,9 @@ static int gridsite_db_handler(request_rec *r)
     }
     /* PUT /grid/db/jobs/UUID/db_rec */
     else if (r->method_number == M_PUT) {
-      if(path_len > jobdir_len + jobrec_len &&
-              apr_strnatcmp((r->path_info) + path_len - jobrec_len, JOB_DB_REC) == 0) {
-        apr_cpystrn(job_id, r->uri, uri_len - jobrec_len + 1);
+      if(uri_len > jobdir_len + jobrec_len &&
+              apr_strnatcmp((r->path_info) + uri_len - jobrec_len, JOB_DB_REC) == 0) {
+        apr_cpystrn(job_uuid, memrchr(r->uri, '/', uri_len), uri_len - jobrec_len + 1);
       }
       else{
         ok = -1;
@@ -211,6 +217,12 @@ static int gridsite_db_handler(request_rec *r)
     if(ok < 0){
       r->allowed = (apr_int64_t) ((1 < M_GET) | (1 < M_PUT));
       return DECLINED;
+    }
+    else{
+      ap_set_content_type(r, "text/html;charset=ascii");
+      ap_rputs("<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01//EN\">\n", r);
+      ap_rputs("<html><head><title>Hello World!</title></head>", r);
+      ap_rputs("<body><h1>Hello World!</h1></body></html>", r);
     }
     
     return OK;
@@ -288,7 +300,8 @@ char* get_job_recs(request_rec *r){
     
     /* The first row is the list of colums. */
     for (i = 0 ; i < cols ; i++) {
-      *key = apr_dbd_get_name(dbd->driver, res, i);
+      //*key = apr_dbd_get_name(dbd->driver, res, i);
+      key = (char*) apr_dbd_get_entry(dbd->driver, 0, i);
       recs = apr_pstrcat(r->pool, recs, key, NULL);
       if(i < cols - 1){
         recs = apr_pstrcat(r->pool, recs, "\t", NULL);
