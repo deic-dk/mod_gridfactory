@@ -18,7 +18,7 @@ default: all
 all: module
 
 module: ${SRC2}
-	${APXS2} -o ${MODFILE} -c ${SRC2}
+	${APXS2} -o ${MODFILE} -c ${SRC2} # -lmysqlclient -laprutil-1 -lapr-1
 
 install: module
 	${APXS2} -i -a -n ${MODNAME} ${MODFILE2}
