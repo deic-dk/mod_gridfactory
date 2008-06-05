@@ -432,6 +432,7 @@ static int gridfactory_db_handler(request_rec *r)
     char* response = "";
     char* base_path;
     
+    conf = (config_rec*)ap_get_module_config(r->per_dir_config, &gridfactory_module);
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "handler %s", r->handler);
 
     if (!r->handler || strcmp(r->handler, "gridfactory"))
@@ -442,15 +443,19 @@ static int gridfactory_db_handler(request_rec *r)
     /* If DBBaseURL was not set in the preferences, default to this server. */
     if(conf->url_ == NULL){
       conf->url_ = apr_pstrcat(r->pool, "https://", r->server->server_hostname,
-       NULL);
+        NULL);
        if(r->server->port && r->server->port != 443){
-         conf->url_ = apr_pstrcat(r->pool, conf->url_, ":", apr_itoa(r->pool, r->server->port), NULL);
-       }
-       base_path = strstr(r->uri, JOB_DIR);
-       if(base_path != NULL){
-         base_path = base_path - jobdir_len;
-         conf->url_ = apr_pstrcat(r->pool, conf->url_, "/", base_path, "/", NULL);
-       }
+        conf->url_ = apr_pstrcat(r->pool, conf->url_, ":", apr_itoa(r->pool, r->server->port), NULL);
+      }
+      base_path = strstr(r->uri, JOB_DIR);
+      if(base_path != NULL){
+        base_path = base_path - jobdir_len;
+        conf->url_ = apr_pstrcat(r->pool, conf->url_, "/", base_path, "/", NULL);
+      }
+      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "URL not set, defaulting to %s", conf->url_);
+    }
+    else{
+      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "URL set.");
     }
 
     /* GET */
