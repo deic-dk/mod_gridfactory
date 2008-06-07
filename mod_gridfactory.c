@@ -311,7 +311,7 @@ char* constructURL(request_rec* r, char* job_id){
   config_rec* conf = (config_rec*)ap_get_module_config(r->per_dir_config, &gridfactory_module);
   char* uuid = memrchr(job_id, '/', strlen(job_id) - 1) + 1;
   char* id = apr_pstrcat(r->pool, conf->url_, uuid, NULL);
-  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "ID: %s + %s -> %s", conf->url_, uuid, id);
+  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "DB URL: %s + %s -> %s", conf->url_, uuid, id);
   return id;
 }
 
@@ -399,27 +399,25 @@ char* jobs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res){
   return recs;
 }
 
-char* get_job_recs(request_rec* r, char* args){
+char* get_job_recs(request_rec* r){
     apr_dbd_results_t *res = NULL;
     char* last;
     char* last1;
     char* query = malloc(256 * sizeof(char *));
-    char buffer[strlen(args)+1];
     char* token;
     char* subtoken1;
     char* subtoken2;
-    /* Output in XML or not. */
-    int text = -1;
+    /* Output in XML or not - default to not. */
+    int text = 0;
     int start = -1;
     int end = -1;
     
-    snprintf(buffer, sizeof(buffer), args);
-    
-    // TODO: rest|list
-    
+    snprintf(query, strlen(JOB_REC_SELECT_Q)+1, JOB_REC_SELECT_Q);
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Query0: %s", query);
     /* GET /grid/db/jobs/?format=text|xml&csStatus=ready|requested|running&... */
-    if(r->args && countchr(args, "=") > 0){
-      query = JOB_REC_SELECT_Q;
+    if(r->args && countchr(r->args, "=") > 0){
+      char buffer[strlen(r->args)+1];
+      snprintf(buffer, strlen(r->args)+1, r->args);
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "args: %s", buffer);
       
       for ((token = strtok_r(buffer, "&", &last)); token;
@@ -445,12 +443,14 @@ char* get_job_recs(request_rec* r, char* args){
           ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "subtoken2: %s", subtoken2);
           query = apr_pstrcat(r->pool, query, " WHERE ", subtoken1, " = '", subtoken2, "'", NULL);
         }
-        if(apr_strnatcmp(subtoken1, START_STR) == 0){
+        else if(apr_strnatcmp(subtoken1, START_STR) == 0){
           subtoken2 = strtok_r(NULL, "=", &last1);
+          ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "subtoken2: %s", subtoken2);
           start = atoi(subtoken2);
         }
         else if(apr_strnatcmp(subtoken1, END_STR) == 0){
           subtoken2 = strtok_r(NULL, "=", &last1);
+          ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "subtoken2: %s", subtoken2);
           end = atoi(subtoken2);
         }
       }
@@ -459,10 +459,10 @@ char* get_job_recs(request_rec* r, char* args){
         return NULL;
       }
       else if(start >= 0 && end >= 0){
-        query = apr_pstrcat(r->pool, query, " LIMIT ", start, ",", end - start +1, NULL);
+        query = apr_pstrcat(r->pool, query, " LIMIT ", apr_itoa(r->pool, start), ",", apr_itoa(r->pool, end - start +1), NULL);
       }
       else if(start < 0 && end >= 0){
-        query = apr_pstrcat(r->pool, query, " LIMIT ", end - start +1, NULL);
+        query = apr_pstrcat(r->pool, query, " LIMIT ", apr_itoa(r->pool, end +1), NULL);
       }
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Query: %s", query);
     }
@@ -593,10 +593,9 @@ static int gridfactory_db_handler(request_rec *r) {
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "URI: %s", r->uri);
 
     /* If DBBaseURL was not set in the preferences, default to this server. */
-    if(conf->url_ == NULL){
+    if(conf->url_ == NULL || strcmp(conf->url_, "") != 0){
       conf->url_ = (char*)apr_pcalloc(r->pool, 256);
       base_url = apr_pstrcat(r->pool, "https://", r->server->server_hostname, NULL);
-      //conf->url_ = base_url;
       apr_cpystrn(conf->url_, base_url, strlen(base_url) + 1);
       if(r->server->port && r->server->port != 443){
         conf->url_ = apr_pstrcat(r->pool, conf->url_, ":", apr_itoa(r->pool, r->server->port), NULL);
@@ -607,18 +606,18 @@ static int gridfactory_db_handler(request_rec *r) {
         apr_cpystrn(base_path, r->uri , uri_len - strlen(path_end) + 1);
         conf->url_ = apr_pstrcat(r->pool, conf->url_, base_path, JOB_DIR, NULL);
       }
-      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "URL not set, defaulting to %s, %s, %s, %s",
+      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "DB base URL not set, defaulting to %s, %s, %s, %s",
         conf->url_, path_end, base_path, r->uri);
     }
     else{
-      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "URL set.");
+      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "DB base URL set to %s.", conf->url_);
     }
 
     /* GET */
     if (r->method_number == M_GET) {
       if(apr_strnatcmp((r->uri) + uri_len - jobdir_len, JOB_DIR) == 0){
         /* GET /grid/db/jobs/?... */
-        response = apr_pstrcat(r->pool, response, get_job_recs(r, r->args), NULL);
+        response = apr_pstrcat(r->pool, response, get_job_recs(r), NULL);
       }    
       /* GET /grid/db/jobs/UUID */
       else if(uri_len > jobdir_len) {
