@@ -26,14 +26,26 @@
  * 
  *******************************************************************************
  * This module allows you to create a gridfactory web service for job pulling.
- * It requires mod_dbm to be loaded and enabled for the Location /grid/jobs.
+ * It requires mod_dbm to be loaded and configured.
  * 
+ * Load the module with:
  * 
  *  LoadModule gridfactory_module /usr/lib/apache2/modules/mod_gridfactory.so
- *  <Location /grid/jobs>
+ *  <Location /db>
  *    SetHandler gridfactory
  *  </Location>
  * 
+ * The directory "db" should be a symlink to /var/spool/gridfactory.
+ * 
+ * Two configuration directives are available:
+ * 
+ *   DBBaseURL "URL"
+ *      The URL served with this module. If this is not specified,
+ *      "https://my.host.hame/db/jobs/" is used.
+ * 
+ *   PrepareStatements "On|Off"
+ *      Whether or not MySQL prepared statements should be used. I don't
+ *      really see any reason to set this to Off.
  */
 
 #include "ap_provider.h"
@@ -57,8 +69,9 @@ module AP_MODULE_DECLARE_DATA authn_dbd_module;
 static char* JOB_DIR = "/jobs/";
 
 /* Keys in the has table of prepared statements. */
-static char* LABEL1 = "gridfactory_dbd_1";
+static char* LABEL = "gridfactory_dbd_1";
 static char* LABEL2 = "gridfactory_dbd_2";
+static char* LABEL1 = "gridfactory_dbd_3";
 
 /* Name of the identifier column. */
 static char* ID_COL = "identifier";
@@ -68,6 +81,10 @@ static int id_col_nr;
 
 /* Name of the status column. */
 static char* STATUS_COL = "csStatus";
+
+/* Name of the lastModified column. */
+static char* LASTMODIFIED_COL = "lastModified";
+
 
 /* Column holding the status. */
 static int status_col_nr;
@@ -88,10 +105,13 @@ static char* JOB_REC_SELECT_PS = "SELECT * FROM jobDefinition WHERE identifier L
 static char* JOB_REC_SELECT_Q = "SELECT * FROM `jobDefinition` WHERE identifier LIKE '%/%s'";
 
 /* Prepared statement string to update job record. */
-static char* JOB_REC_UPDATE_PS = "UPDATE `jobDefinition` SET csStatus = ?, lastModified = ? WHERE identifier LIKE ?";
+static char* JOB_REC_UPDATE_PS_1 = "UPDATE `jobDefinition` SET lastModified = NOW() WHERE identifier LIKE ?";
+
+/* Prepared statement string to update job record. */
+static char* JOB_REC_UPDATE_PS_2 = "UPDATE `jobDefinition` SET lastModified = NOW(), csStatus = ? WHERE identifier LIKE ?";
 
 /* Query to update job record. */
-static char* JOB_REC_UPDATE_Q = "UPDATE `jobDefinition` SET ";
+static char* JOB_REC_UPDATE_Q = "UPDATE `jobDefinition` SET lastModified = NOW()";
 
 /* Optional function - look it up once in post_config. */
 static ap_dbd_t* (*dbd_acquire_fn)(request_rec*) = NULL;
@@ -168,11 +188,9 @@ do_config(apr_pool_t* p, char* d)
 static void*
 dbd_prepare(cmd_parms* cmd, void* cfg)
 {
-    dbd_prepare_fn(cmd->server, JOB_REC_SELECT_PS, LABEL1);
-    dbd_prepare_fn(cmd->server, JOB_REC_UPDATE_PS, LABEL2);
-    
-    //apr_hash_set(dbd->prepared, LABEL1, APR_HASH_KEY_STRING, stmt);
-    //apr_hash_set(dbd->prepared, LABEL2, APR_HASH_KEY_STRING, stmt);
+    dbd_prepare_fn(cmd->server, JOB_REC_SELECT_PS, LABEL);
+    dbd_prepare_fn(cmd->server, JOB_REC_UPDATE_PS_1, LABEL1);
+    dbd_prepare_fn(cmd->server, JOB_REC_UPDATE_PS_2, LABEL2);
 }
 
 static const char*
@@ -522,7 +540,7 @@ db_result* get_job_recs(request_rec* r){
 void get_job_rec_ps(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
    char* uuid){
 
-    apr_dbd_prepared_t* statement = apr_hash_get(dbd->prepared, LABEL1, APR_HASH_KEY_STRING);
+    apr_dbd_prepared_t* statement = apr_hash_get(dbd->prepared, LABEL, APR_HASH_KEY_STRING);
     if(statement == NULL){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
                       "A prepared statement could not be found for getting job records.");
@@ -840,55 +858,84 @@ static int parse_input_from_put(request_rec* r, apr_hash_t **form){
 int update_job_rec(request_rec *r, char* uuid) {
   
   /* Read and parse the data. */
-  
   apr_hash_t* put_data = NULL;
-  
   int status = parse_input_from_put(r, &put_data);
- 
   if(status != OK){
      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Error reading request body.");
      return status;
   }
   
   /* Now update the database record. */
-  
   apr_hash_index_t* index;
   char* query = "";
   int nrows;
-  int firstrow = 0;
+  /* 0 -> no fields to be updated (except for lastModified),
+     1 -> only csStatus to be updated,
+     2 -> other than csStatus to be updated. */
+  int status_only = 0;
   
   query = apr_pstrcat(r->pool, query, JOB_REC_UPDATE_Q, NULL);
-  
-  for(index = apr_hash_first(NULL, put_data); index; index = apr_hash_next(index)){
+  for(index = apr_hash_first(NULL, put_data);
+     index; index = apr_hash_next(index)){
     const char *k;
     const char *v;
-    if(firstrow != 0){
-      query = apr_pstrcat(r->pool, query, ", ", NULL);
-    }
     apr_hash_this(index, (const void**)&k, NULL, (void**)&v);
-    query = apr_pstrcat(r->pool, query, ap_escape_html(r->pool, k), " = '",
+    if(status_only == 0 && apr_strnatcmp(v, STATUS_COL) == 0){
+      status_only = 1;
+    }
+    if(status_only < 2 && apr_strnatcmp(v, STATUS_COL) != 0){
+      status_only = 2;
+    }
+    if(apr_strnatcmp(v, LASTMODIFIED_COL) != 0){
+      query = apr_pstrcat(r->pool, query, ", ", ap_escape_html(r->pool, k), " = '",
                         ap_escape_html(r->pool, v), "'", NULL);
-    firstrow = -1;
+    }
   }
-  
-  query = apr_pstrcat(r->pool, query, " WHERE ", ID_COL, " LIKE '%/", uuid, "'", NULL);
-  
-  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Query: %s", query);
 
+  config_rec* conf = (config_rec*)ap_get_module_config(r->per_dir_config, &gridfactory_module);
   ap_dbd_t* dbd = dbd_acquire_fn(r);
   if(dbd == NULL){
     ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to acquire database connection.");
     return HTTP_INTERNAL_SERVER_ERROR;
   }
   
-  // TODO: if no keys or only the status key is present, use prepared statements.
+  if(conf->ps_ != NULL && apr_strnatcasecmp(conf->ps_, "On") != 0 &&
+     status_only == 0){
+    /* If no key is present, use prepared statement. */
+    apr_dbd_prepared_t* statement = apr_hash_get(dbd->prepared, LABEL1, APR_HASH_KEY_STRING);
+    if(statement == NULL){
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "A prepared statement could not be found for getting job records.");
+    }
+    char* str = apr_pstrcat(r->pool, "%/", uuid, NULL);
+    if(apr_dbd_pvquery(dbd->driver, r->pool, dbd->handle, &nrows,
+       statement, str) != 0) {
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error for %s.", str);
+    }
+  }
+  else if(conf->ps_ != NULL && apr_strnatcasecmp(conf->ps_, "On") != 0 &&
+          status_only == 1){
+    /* If only the status key is present, use prepared statement. */
+    apr_dbd_prepared_t* statement = apr_hash_get(dbd->prepared, LABEL2, APR_HASH_KEY_STRING);
+    if(statement == NULL){
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "A prepared statement could not be found for getting job records.");
+    }
+    char* str = apr_pstrcat(r->pool, "%/", uuid, NULL);
+    if(apr_dbd_pvquery(dbd->driver, r->pool, dbd->handle, &nrows,
+       statement, status, str) != 0) {
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error for %s, %s", status, str);
+    }
+  }
+  else{
+    /* Otherwise, just use a normal query. */
+    query = apr_pstrcat(r->pool, query, " WHERE ", ID_COL, " LIKE '%/", uuid, "'", NULL);  
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Query: %s", query);
+    if(apr_dbd_query(dbd->driver, dbd->handle, &nrows, query) != 0){
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error");
+      return HTTP_INTERNAL_SERVER_ERROR;
+    }    
+  }
   
   // TODO: generate date for lastModified
-  
-  if(apr_dbd_query(dbd->driver, dbd->handle, &nrows, query) != 0){
-    ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error");
-    return HTTP_INTERNAL_SERVER_ERROR;
-  }    
   
   /* If we return HTTP_CREATED, Apache spits out:
 
