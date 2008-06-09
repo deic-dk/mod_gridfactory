@@ -880,6 +880,11 @@ int update_job_rec(request_rec *r, char* uuid) {
     ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to acquire database connection.");
     return HTTP_INTERNAL_SERVER_ERROR;
   }
+  
+  // TODO: if no keys or only the status key is present, use prepared statements.
+  
+  // TODO: generate date for lastModified
+  
   if(apr_dbd_query(dbd->driver, dbd->handle, &nrows, query) != 0){
     ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error");
     return HTTP_INTERNAL_SERVER_ERROR;
