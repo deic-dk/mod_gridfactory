@@ -90,6 +90,9 @@ static char* JOB_REC_SELECT_Q = "SELECT * FROM `jobDefinition` WHERE identifier 
 /* Prepared statement string to update job record. */
 static char* JOB_REC_UPDATE_PS = "UPDATE `jobDefinition` SET csStatus = ?, lastModified = ? WHERE identifier LIKE ?";
 
+/* Query to update job record. */
+static char* JOB_REC_UPDATE_Q = "UPDATE `jobDefinition` SET ";
+
 /* Optional function - look it up once in post_config. */
 static ap_dbd_t* (*dbd_acquire_fn)(request_rec*) = NULL;
 static void (*dbd_prepare_fn)(server_rec*, const char*, const char*) = NULL;
@@ -100,8 +103,8 @@ static int MAX_F_SIZE = 256;
 /* Max size of all field names. */
 static int MAX_T_F_SIZE = 5120;
 
-/* Max number of characters in response document. */
-static int MAX_RESPONSE_CHARS = 100000;
+/* Max size (bytes) of response and PUT bodies. */
+static int MAX_SIZE = 100000;
 
 /* String to use in GET request to require format. */
 static char* FORMAT_STR = "format";
@@ -423,7 +426,7 @@ db_result* get_job_recs(request_rec* r){
     int end = -1;
     char* tmprecs;
     // For some reason, here we have to allocate memory - otherwise it segfaults...
-    db_result* ret = (db_result*)apr_pcalloc(r->pool, MAX_RESPONSE_CHARS * sizeof(char*));
+    db_result* ret = (db_result*)apr_pcalloc(r->pool, MAX_SIZE);
     ret->format = 0;
     
     snprintf(query, strlen(JOB_RECS_SELECT_Q)+1, JOB_RECS_SELECT_Q);
@@ -700,12 +703,214 @@ db_result* get_job_rec(request_rec *r, char* uuid){
     //apr_dbd_close(dbd->driver, dbd->handle);
     
     return ret;
-} 
+}
 
-int update_job_rec(request_rec *r, char* id) {
-  // TODO
-  return 0;
-} 
+/* From http://www.wilsonmar.com/1strings.htm. */
+void ltrim( char * string, char * trim )
+{
+  while ( string[0] != '\0' && strchr ( trim, string[0] ) != NULL )
+  {
+    memmove( &string[0], &string[1], strlen(string) );
+  }
+}
+
+/* From The Apache Modules Book. */
+/* Parse PUT text data from a string. The input string is NOT preserved. */
+static apr_hash_t* parse_put_from_string(request_rec* r, char* args){
+  apr_hash_t* tbl;
+  apr_array_header_t* values;
+  char* pair;
+  char* eq;
+  const char* delim = "\n";
+  const char* sep = ":";
+  char* last;
+  char** ptr;
+  
+  if(args == NULL){
+    return NULL;
+  }
+  
+  tbl = apr_hash_make(r->pool);
+  
+  /* Split the input on "\n" */
+  for(pair = apr_strtok(args, delim, &last); pair != NULL;
+      pair = apr_strtok(NULL, delim, &last)){
+    for(eq = pair; *eq; ++eq){
+      if(*eq == '+'){
+        *eq = ' ';
+      }
+    }
+    eq = strstr(pair, sep);
+    if(eq){
+      *eq++ = '\0';
+      ltrim(eq, " ");
+      ap_unescape_url(eq);
+    }
+    else{
+      eq = "";
+    }
+    ltrim(pair, " ");
+    ap_unescape_url(pair);
+    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "key: %s", pair);
+    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "value: %s", eq);
+    apr_hash_set(tbl, pair, APR_HASH_KEY_STRING, apr_pstrdup(r->pool, eq));
+    
+  }
+  return tbl;
+}
+
+/* From The Apache Modules Book. */
+static int parse_input_from_put(request_rec* r, apr_hash_t **form){
+  int bytes, eos;
+  apr_size_t count;
+  apr_status_t rv;
+  apr_bucket_brigade* bb;
+  apr_bucket_brigade* bbin;
+  char* buf;
+  apr_bucket* b;
+  
+  const char* clen = apr_table_get(r->headers_in, "Content-Length");
+  if(clen != NULL){
+    bytes = strtol(clen, NULL, 0);
+    if(bytes >= MAX_SIZE){
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Request too big (%d bytes; limit %d).", bytes, MAX_SIZE);
+      return HTTP_REQUEST_ENTITY_TOO_LARGE;
+    }
+  }
+  else{
+    bytes = MAX_SIZE;
+  }
+  
+  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Buffer size: %d bytes", bytes);
+  
+  bb = apr_brigade_create(r->pool, r->connection->bucket_alloc);
+  bbin = apr_brigade_create(r->pool, r->connection->bucket_alloc);
+  count = 0;
+  
+  do{
+    rv = ap_get_brigade(r->input_filters, bbin, AP_MODE_READBYTES, APR_BLOCK_READ, bytes);
+    if(rv != APR_SUCCESS){
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to read PUT input.");
+      return HTTP_INTERNAL_SERVER_ERROR;
+    }
+    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Looping");
+    for(b = APR_BRIGADE_FIRST(bbin);
+       b != APR_BRIGADE_SENTINEL(bbin);
+       b = APR_BUCKET_NEXT(b)){
+      if(APR_BUCKET_IS_EOS(b) /* had to add this to avoid infinite loop: */|| b->length <= 0 || APR_BUCKET_IS_METADATA(b)){
+        eos = 1;
+        break;
+      }
+      if(!APR_BUCKET_IS_METADATA(b)){
+        if(b->length != (apr_size_t)(-1)){
+          count += b->length;
+          if(count > MAX_SIZE){
+            apr_bucket_delete(b);
+          }
+        }
+      }
+      if(count <= MAX_SIZE){
+        APR_BUCKET_REMOVE(b);
+        APR_BRIGADE_INSERT_TAIL(bb, b);
+      }
+      ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Read %d", count);
+    }
+  } while (!eos);
+  
+  /* Done with the data. Kill the request if we got too much. */
+  if(count > MAX_SIZE){
+    ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Request too big (%d bytes; limit %d).", bytes, MAX_SIZE);
+    return HTTP_REQUEST_ENTITY_TOO_LARGE;
+  }
+  
+  /* Put the data in a buffer and parse it. */
+  buf = apr_palloc(r->pool, count + 1);
+  rv = apr_brigade_flatten(bb, buf, &count);
+  if(rv != APR_SUCCESS){
+    ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Error (flatten) reading form data.");
+    return HTTP_INTERNAL_SERVER_ERROR;
+  }
+  buf[count] = '\0';
+  *form = parse_put_from_string(r, buf);
+  
+  return OK;
+  
+}
+
+int update_job_rec(request_rec *r, char* uuid) {
+  
+  /* Read and parse the data. */
+  
+  apr_hash_t* put_data = NULL;
+  
+  int status = parse_input_from_put(r, &put_data);
+ 
+  if(status != OK){
+     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Error reading request body.");
+     return status;
+  }
+  
+  /* Now update the database record. */
+  
+  apr_hash_index_t* index;
+  char* query = "";
+  int nrows;
+  int firstrow = 0;
+  
+  query = apr_pstrcat(r->pool, query, JOB_REC_UPDATE_Q, NULL);
+  
+  for(index = apr_hash_first(NULL, put_data); index; index = apr_hash_next(index)){
+    const char *k;
+    const char *v;
+    if(firstrow != 0){
+      query = apr_pstrcat(r->pool, query, ", ", NULL);
+    }
+    apr_hash_this(index, (const void**)&k, NULL, (void**)&v);
+    query = apr_pstrcat(r->pool, query, ap_escape_html(r->pool, k), " = '",
+                        ap_escape_html(r->pool, v), "'", NULL);
+    firstrow = -1;
+  }
+  
+  query = apr_pstrcat(r->pool, query, " WHERE ", ID_COL, " LIKE '%/", uuid, "'", NULL);
+  
+  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Query: %s", query);
+
+  ap_dbd_t* dbd = dbd_acquire_fn(r);
+  if(dbd == NULL){
+    ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to acquire database connection.");
+    return HTTP_INTERNAL_SERVER_ERROR;
+  }
+  if(apr_dbd_query(dbd->driver, dbd->handle, &nrows, query) != 0){
+    ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error");
+    return HTTP_INTERNAL_SERVER_ERROR;
+  }    
+  
+  /* If we return HTTP_CREATED, Apache spits out:
+
+     <p>The server encountered an internal error or
+     misconfiguration and was unable to complete
+     your request.</p>
+     <p>Please contact the server administrator,
+     [no address given] and inform them of the time the error occurred,
+     and anything you might have done that may have
+     caused the error.</p>
+     <p>More information about this error may be available
+     in the server error log.</p>
+ 
+   */
+
+  /*
+  if(nrows > 0){
+    return HTTP_CREATED;
+  }
+  else{
+    return OK;
+  }
+  */
+  
+  return OK;
+  
+}
 
 /* From mod_ftpd. */
 /* Prevent mod_dir from adding directory indexes */
@@ -720,7 +925,7 @@ static int gridfactory_db_handler(request_rec *r) {
     config_rec* conf;
     int uri_len = strlen(r->uri);
     int jobdir_len = strlen(JOB_DIR);
-    int ok = 0;
+    int ok = OK;
     char* base_path;
     char* tmp_url;
     char* path_end;
@@ -777,22 +982,38 @@ static int gridfactory_db_handler(request_rec *r) {
         ret = get_job_rec(r, job_uuid);
       }
       else{
-        ok = -1;
+        return DECLINED;
       }
+      
+      if(ret->format == 0){
+        ap_set_content_type(r, "text/plain;charset=ascii");
+        ap_rputs(ret->res, r);
+      }
+      else if(ret->format == 1){
+        ap_set_content_type(r, "text/xml;charset=ascii");
+        ap_rputs(ret->res, r);
+      }
+      else{
+        return DECLINED;
+      } 
     }
     /* PUT /grid/db/jobs/UUID */
     /*
      * Test with e.g.
-     * curl --insecure --cert /home/fjob/.globus/usercert.pem --key /home/fjob/.globus/userkey.pem --upload-file 3a86aacc-2d5f-11dd-80f2-c3b981785945 https://localhost/db/jobs/3a86aacc-2d5f-11dd-80f2-c3b981785945
+     * curl --insecure --cert /home/fjob/.globus/usercert.pem --key /home/fjob/.globus/userkey.pem \
+     * --upload-file 3a86aacc-2d5f-11dd-80f2-c3b981785945 \
+     * https://localhost/db/jobs/3a86aacc-2d5f-11dd-80f2-c3b981785945
      */
     else if (r->method_number == M_PUT) {
       char* tmpstr = (char*)apr_pcalloc(r->pool, sizeof(char*) * 256);
-      apr_cpystrn(tmpstr, r->uri, jobdir_len + 1);
+      apr_cpystrn(tmpstr, strstr(r->uri, JOB_DIR), jobdir_len + 1);
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "PUT %s", r->uri);
+      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Check: %s <-> %s", tmpstr, JOB_DIR);
       if(strcmp(JOB_DIR, tmpstr) == 0) {
         job_uuid = memrchr(r->uri, '/', uri_len);
         apr_cpystrn(job_uuid, job_uuid+1 , uri_len - 1);
         ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "job_uuid --> %s", job_uuid);
+        ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Content type: %s", r->content_type);
         ok = update_job_rec(r, job_uuid);
       }
       else{
@@ -800,32 +1021,10 @@ static int gridfactory_db_handler(request_rec *r) {
       }
     }
     else{
-      ok = -1;
-    }
-    if(ok < 0){
       r->allowed = (apr_int64_t) ((1 < M_GET) | (1 < M_PUT));
-      return DECLINED;
-    }
-    else{
-      if(ret->format == 0){
-        ap_set_content_type(r, "text/plain;charset=ascii");
-      }
-      else if(ret->format == 1){
-        ap_set_content_type(r, "text/xml;charset=ascii");
-      }
-      else{
-        return DECLINED;
-      }
-      ap_rputs(ret->res, r);
-      /*ap_set_content_type(r, "text/html;charset=ascii");
-      ap_rputs("<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01//EN\">\n", r);
-      ap_rputs("<html><head><title>Hello World!</title></head>", r);
-      ap_rputs("<body><h1>Hello World!</h1>", r);
-      ap_set_content_type(r, "text/plain;charset=ascii");
-      ap_rputs(response, r);
-      ap_rputs("</body></html>", r);*/
     }
     
+    /* Causes segfaults... */
     /*int i;
     for(i = 0; i < cols; i++){
       free(fields[i]);
@@ -833,7 +1032,7 @@ static int gridfactory_db_handler(request_rec *r) {
     free(fields);
     free(fields_str);*/
 
-    return OK;
+    return ok;
 }
 
 static void register_hooks(apr_pool_t *p)
