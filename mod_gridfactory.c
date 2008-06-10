@@ -25,7 +25,7 @@
  * http://www.apache.org/licenses/LICENSE-2.0
  * 
  *******************************************************************************
- * This module allows you to create a gridfactory web service for job pulling.
+ * This module allows you to create a GridFactory web service for job pulling.
  * It requires mod_dbm to be loaded and configured.
  * 
  * Load the module with:
