@@ -714,8 +714,8 @@ db_result* get_job_rec(request_rec *r, char* uuid){
       ret->res = job_xml_format(r, dbd, res);
     }
     
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning:");
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, ret->res);
+    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Returning:");
+    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, ret->res);
     
     // Dont't do this. It causes segfaults...
     //apr_dbd_close(dbd->driver, dbd->handle);
@@ -968,7 +968,9 @@ int update_job_rec(request_rec *r, char* uuid) {
 /* Prevent mod_dir from adding directory indexes */
 static int fixup_path(request_rec *r)
 {
-  r->path_info = r->filename;
+  if(r->handler && strcmp(r->handler, "gridfactory")){
+    r->path_info = r->filename;
+  }
   return OK;
 }
 
