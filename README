@@ -19,14 +19,13 @@ a GridFactory server with database authorization done via GACL.
 Large parts of the code are taken from the book
 "The Apache Modules Book".
 
-In order to build the source you must have development libraries of
-Apache-2 installed - and these and the mod_dbd of your Apache
-installation must have MySQL support. Moreover, you must have the
-development libraries of MySQL installed.
+In order to build the source you must have the aprutil-1 library of
+Apache-2 installed - and it  must have MySQL support. Moreover,
+you must have the development libraries of MySQL installed.
+Specifically, you must have versions of libaprutil-1.so with MySQL support.
+Older distros don't have this because of licensing issues.
 
-Specifically, you must have versions of libaprutil-1.so and
-mod_dbd.so with MySQL support. Older distros don't have this
-because of licensing issues. To build these libraries, please see
+To build this library, please see
 
 http://www.holwegner.com/article/448/fixing-debian-etchs-broken-apache-mod_dbd
 
