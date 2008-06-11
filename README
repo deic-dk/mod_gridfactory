@@ -30,14 +30,16 @@ because of licensing issues. To build these libraries, please see
 
 http://www.holwegner.com/article/448/fixing-debian-etchs-broken-apache-mod_dbd
 
-After making sure these prerequisites are ok, you can build mod_gridfactory.so
-using the simple Makefile provided.
+After making sure these prerequisites are ok, you can build
+mod_gridfactory.so using the simple Makefile provided.
 To build on a UNIX-like system, type 'make'.
 
 To install the module either type 'make install' or simply copy
 ".libs/mod_gridfactory.so" to your Apache modules directory.
 A sample Apache configuration file is provided ("grid.conf").
 You may want to copy this to your virtual hosts directory - and
-modify it to suit your Apache setup.
+modify it to suit your Apache setup. If you've installed GridFactory
+files and directories in their default locations, you should only need
+to change the ServerName, ErrorLog and CustomLog directives.
 
 For more information, please consult the code.
