@@ -23,7 +23,15 @@ In order to build the source you must have development libraries of
 Apache-2 installed - and these and the mod_dbd of your Apache
 installation must have MySQL support. Moreover, you must have the
 development libraries of MySQL installed.
-A simple Makefile is provided for building a DSO module.
+
+Specifically, you must have versions of libaprutil-1.so and
+mod_dbd.so with MySQL support. Older distros don't have this
+because of licensing issues. To build these libraries, please see
+
+http://www.holwegner.com/article/448/fixing-debian-etchs-broken-apache-mod_dbd
+
+After making sure these prerequisites are ok, you can build mod_gridfactory.so
+using the simple Makefile provided.
 To build on a UNIX-like system, type 'make'.
 
 To install the module either type 'make install' or simply copy
