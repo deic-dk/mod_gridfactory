@@ -5,8 +5,6 @@ SHELL = /bin/sh
 
 MODNAME = gridfactory
 MODFILE = mod_${MODNAME}.so
-APXS = apxs
-
 SRC2 = mod_${MODNAME}.c
 MODFILE2 = mod_${MODNAME}.la
 APXS2 = apxs2

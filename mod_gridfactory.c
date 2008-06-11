@@ -51,6 +51,7 @@
 #include "ap_provider.h"
 #include "httpd.h"
 #include "http_config.h"
+#include "http_protocol.h"
 #include "http_log.h"
 #include "http_request.h"
 #include "apr_lib.h"
@@ -185,7 +186,7 @@ do_config(apr_pool_t* p, char* d)
  * DB stuff
  */
 
-static void*
+static void
 dbd_prepare(cmd_parms* cmd, void* cfg)
 {
     dbd_prepare_fn(cmd->server, JOB_REC_SELECT_PS, LABEL);
@@ -232,7 +233,7 @@ static const command_rec command_table[] =
 
 unsigned long countchr(const char *str, const char *ch)
 {
-  unsigned long count;
+  unsigned long count = 0;
   for ( ; (*str); ++str ){
     if(*str == *ch){
       ++count;
@@ -242,7 +243,7 @@ unsigned long countchr(const char *str, const char *ch)
 }
 
 /* From apr_dbd_mysql.c */
-struct apr_dbd_results_t {
+/*struct apr_dbd_results_t {
     int random;
     MYSQL_RES *res;
     MYSQL_STMT *statement;
@@ -250,7 +251,7 @@ struct apr_dbd_results_t {
 #if APU_MAJOR_VERSION >= 2 || (APU_MAJOR_VERSION == 1 && APU_MINOR_VERSION >= 3)
     apr_pool_t *pool;
 #endif
-};
+};*/
 
 typedef struct {
     int format;
@@ -340,7 +341,6 @@ int get_fields(request_rec *r, ap_dbd_t* dbd){
 }
 
 char* constructURL(request_rec* r, char* job_id){
-  config_rec* conf = (config_rec*)ap_get_module_config(r->per_dir_config, &gridfactory_module);
   char* uuid = memrchr(job_id, '/', strlen(job_id) - 1) + 1;
   char* id = apr_pstrcat(r->pool, base_url, uuid, NULL);
   ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "DB URL: %s + %s -> %s", base_url, uuid, id);
@@ -352,9 +352,7 @@ char* jobs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res){
   char* val;
   apr_dbd_row_t* row = NULL;
   int i = 0;
-  char* dbUrl;
-  
-  config_rec* conf = (config_rec*)ap_get_module_config(r->per_dir_config, &gridfactory_module);
+  char* dbUrl = "";
   
   char* recs = fields_str;
 
@@ -391,10 +389,8 @@ char* jobs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res){
   char* val;
   apr_dbd_row_t* row = NULL;
   int i = 0;
-  char* id;
+  char* id = "";
   char* recs;
-  
-  config_rec* conf = (config_rec*)ap_get_module_config(r->per_dir_config, &gridfactory_module);
   
   recs = "<?xml version=\"1.0\"?>\n<jobs>";
 
@@ -432,7 +428,7 @@ char* jobs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res){
  * Appends text representing DB result to 'recs'.
  * Returns 0 if text output was requested or no format was specified.
  */
-db_result* get_job_recs(request_rec* r){
+db_result* get_job_recs(request_rec* r, db_result* ret){
     apr_dbd_results_t *res = NULL;
     char* last;
     char* last1;
@@ -442,9 +438,6 @@ db_result* get_job_recs(request_rec* r){
     char* subtoken2;
     int start = -1;
     int end = -1;
-    char* tmprecs;
-    // For some reason, here we have to allocate memory - otherwise it segfaults...
-    db_result* ret = (db_result*)apr_pcalloc(r->pool, MAX_SIZE);
     ret->format = 0;
     
     snprintf(query, strlen(JOB_RECS_SELECT_Q)+1, JOB_RECS_SELECT_Q);
@@ -562,7 +555,6 @@ void get_job_rec_s(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
   if(apr_dbd_select(dbd->driver, r->pool, dbd->handle, &res, query, 1) != 0){
     ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error");
   }
-  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "res: %i", res);
 }
 
 char* job_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res){
@@ -640,15 +632,13 @@ char* job_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res){
     return rec;
 }
 
-db_result* get_job_rec(request_rec *r, char* uuid){
+void get_job_rec(request_rec *r, char* uuid, db_result* ret){
   
     char* token;
     char* subtoken1;
     char* subtoken2;
     char* last;
     char* last1;
-    char* tmprec;
-    db_result* ret;
     ret->format = 0;
 
     apr_dbd_results_t* res = (apr_dbd_results_t*)apr_pcalloc(r->pool, 5120);  
@@ -657,12 +647,12 @@ db_result* get_job_rec(request_rec *r, char* uuid){
     ap_dbd_t* dbd = dbd_acquire_fn(r);
     if(dbd == NULL){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to acquire database connection.");
-        return NULL;
+        return;
     }
     
     if(get_fields(r, dbd) < 0){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to get fields.");
-      return NULL;
+      return;
     }
     
     config_rec* conf = (config_rec*)ap_get_module_config(r->per_dir_config, &gridfactory_module);
@@ -670,7 +660,6 @@ db_result* get_job_rec(request_rec *r, char* uuid){
       apr_strnatcasecmp(conf->ps_, "On") != 0){
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "PrepareStatements not enabled, %s.", conf->ps_);
       get_job_rec_s(r, dbd, res, uuid);
-      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "res: %i", res);
     }
     else{
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "PrepareStatements enabled, %s.", conf->ps_);
@@ -679,7 +668,7 @@ db_result* get_job_rec(request_rec *r, char* uuid){
     
     if(res == NULL){
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Nothing returned from query.");
-      return NULL;
+      return;
     }
     
     if(r->args && countchr(r->args, "=") > 0){
@@ -719,8 +708,7 @@ db_result* get_job_rec(request_rec *r, char* uuid){
     
     // Dont't do this. It causes segfaults...
     //apr_dbd_close(dbd->driver, dbd->handle);
-    
-    return ret;
+
 }
 
 /* From http://www.wilsonmar.com/1strings.htm. */
@@ -736,13 +724,11 @@ void ltrim( char * string, char * trim )
 /* Parse PUT text data from a string. The input string is NOT preserved. */
 static apr_hash_t* parse_put_from_string(request_rec* r, char* args){
   apr_hash_t* tbl;
-  apr_array_header_t* values;
   char* pair;
   char* eq;
   const char* delim = "\n";
   const char* sep = ":";
   char* last;
-  char** ptr;
   
   if(args == NULL){
     return NULL;
@@ -922,7 +908,7 @@ int update_job_rec(request_rec *r, char* uuid) {
     char* str = apr_pstrcat(r->pool, "%/", uuid, NULL);
     if(apr_dbd_pvquery(dbd->driver, r->pool, dbd->handle, &nrows,
        statement, status, str) != 0) {
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error for %s, %s", status, str);
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error for %i, %s", status, str);
     }
   }
   else{
@@ -983,7 +969,7 @@ static int gridfactory_db_handler(request_rec *r) {
     char* base_path;
     char* tmp_url;
     char* path_end;
-    db_result* ret;
+    db_result ret = {0, ""};
     
     conf = (config_rec*)ap_get_module_config(r->per_dir_config, &gridfactory_module);
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "handler %s", r->handler);
@@ -1021,7 +1007,7 @@ static int gridfactory_db_handler(request_rec *r) {
     if (r->method_number == M_GET) {
       if(apr_strnatcmp((r->uri) + uri_len - jobdir_len, JOB_DIR) == 0){
         /* GET /grid/db/jobs/?... */
-        ret = get_job_recs(r);
+        get_job_recs(r, &ret);
       }    
       /* GET /grid/db/jobs/UUID */
       else if(uri_len > jobdir_len) {
@@ -1033,19 +1019,19 @@ static int gridfactory_db_handler(request_rec *r) {
         job_uuid = memrchr(r->uri, '/', uri_len);
         apr_cpystrn(job_uuid, job_uuid+1 , uri_len - 1);
         ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "job_uuid --> %s", job_uuid);
-        ret = get_job_rec(r, job_uuid);
+        get_job_rec(r, job_uuid, &ret);
       }
       else{
         return DECLINED;
       }
       
-      if(ret->format == 0){
+      if(ret.format == 0){
         ap_set_content_type(r, "text/plain;charset=ascii");
-        ap_rputs(ret->res, r);
+        ap_rputs(ret.res, r);
       }
-      else if(ret->format == 1){
+      else if(ret.format == 1){
         ap_set_content_type(r, "text/xml;charset=ascii");
-        ap_rputs(ret->res, r);
+        ap_rputs(ret.res, r);
       }
       else{
         return DECLINED;

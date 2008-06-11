@@ -20,8 +20,9 @@ Large parts of the code are taken from the book
 "The Apache Modules Book".
 
 In order to build the source you must have development libraries of
-Apache-2 installed. Moreover, these and the mod_dbd of your Apache
-installation must have MySQL support.
+Apache-2 installed - and these and the mod_dbd of your Apache
+installation must have MySQL support. Moreover, you must have the
+development libraries of MySQL installed.
 A simple Makefile is provided for building a DSO module.
 To build on a UNIX-like system, type 'make'.
 
