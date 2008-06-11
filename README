@@ -40,6 +40,6 @@ A sample Apache configuration file is provided ("grid.conf").
 You may want to copy this to your virtual hosts directory - and
 modify it to suit your Apache setup. If you've installed GridFactory
 files and directories in their default locations, you should only need
-to change the ServerName, ErrorLog and CustomLog directives.
+to change the DBDParams, ServerName, ErrorLog and CustomLog directives.
 
 For more information, please consult the code.
