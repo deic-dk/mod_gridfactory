@@ -954,7 +954,7 @@ int update_job_rec(request_rec *r, char* uuid) {
 /* Prevent mod_dir from adding directory indexes */
 static int fixup_path(request_rec *r)
 {
-  if(r->handler && strcmp(r->handler, "gridfactory")){
+  if(r->handler && strcmp(r->handler, "gridfactory") == 0){
     r->path_info = r->filename;
   }
   return OK;
@@ -1004,7 +1004,7 @@ static int gridfactory_db_handler(request_rec *r) {
 
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Request %s", r->the_request);
     /* GET */
-    if (r->method_number == M_GET) {
+    if(r->method_number == M_GET){
       if(apr_strnatcmp((r->uri) + uri_len - jobdir_len, JOB_DIR) == 0){
         /* GET /grid/db/jobs/?... */
         get_job_recs(r, &ret);
@@ -1044,7 +1044,7 @@ static int gridfactory_db_handler(request_rec *r) {
      * --upload-file 3a86aacc-2d5f-11dd-80f2-c3b981785945 \
      * https://localhost/db/jobs/3a86aacc-2d5f-11dd-80f2-c3b981785945
      */
-    else if (r->method_number == M_PUT) {
+    else if(r->method_number == M_PUT){
       char* tmpstr = (char*)apr_pcalloc(r->pool, sizeof(char*) * 256);
       apr_cpystrn(tmpstr, strstr(r->uri, JOB_DIR), jobdir_len + 1);
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "PUT %s", r->uri);
