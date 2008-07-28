@@ -422,7 +422,7 @@ char* jobs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res, in
       if(priv && (
         checkStr == NULL ||
         *checkStart != 0 && *checkStart != ' ' && *checkStart != '\t' ||
-        *checkEnd != 0 && *checkEnd != ' ' && *checkStart != '\t'
+        *checkEnd != 0 && *checkEnd != ' ' && *checkEnd != '\t'
         )){
         continue;
       }  
