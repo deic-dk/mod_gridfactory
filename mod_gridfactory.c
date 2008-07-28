@@ -127,6 +127,9 @@ static int MAX_T_F_SIZE = 5120;
 /* Max size (bytes) of response and PUT bodies. */
 static int MAX_SIZE = 100000;
 
+/* Whether or not to operate in private mode (1 = private). */
+static int PRIVATE = 1;
+
 /* String to use in GET request to require format. */
 static char* FORMAT_STR = "format";
 
@@ -148,6 +151,13 @@ char* fields_str = "";
 char** fields;
 /* Number of fields. */
 int cols = 0;
+
+/* Public fields of the jobDefinition table. */
+char* pub_fields_str = "identifier\tname\tcsStatus\tuserInfo\tcreated\tlastModified\tgridTime\tmemory\topSys\truntimeEnvironments\tallowedVOs\tvirtualize\tdbUrl";
+/* Public fields of the jobDefinition table. */
+char** pub_fields;
+/* Number of public fields. */
+int pub_cols = 0;
 
 /* Base URL for the DB web service. */
 char* base_url;
@@ -258,7 +268,34 @@ typedef struct {
     char* res;
 } db_result;
 
-int get_fields(request_rec *r, ap_dbd_t* dbd){
+int set_pub_fields(request_rec *r){
+
+  if (pub_cols == 0) {
+    return 0;
+  }
+  
+  char* field;
+  char* eq;
+  const char* delim = "\t";
+  char* last;
+  int i = 0;
+  
+  /* Split the fields on " " */
+  for(field = apr_strtok(pub_fields_str, delim, &last); field != NULL;
+      field = apr_strtok(NULL, delim, &last)){
+    pub_fields[i] = malloc(MAX_F_SIZE * sizeof(char));
+    if(pub_fields[i] == NULL){
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Out of memory.");
+      return -1;
+    }
+    apr_cpystrn(pub_fields[i], field, strlen(field)+1);
+    ++i;
+  }
+  pub_cols = i;
+  return 0;
+}
+
+int set_fields(request_rec *r, ap_dbd_t* dbd){
   
     if (strcmp(fields_str, "") != 0) {
       return 0;
@@ -347,14 +384,24 @@ char* constructURL(request_rec* r, char* job_id){
   return id;
 }
 
-char* jobs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res){
+char* jobs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res, int priv){
   apr_status_t rv;
   char* val;
   apr_dbd_row_t* row = NULL;
   int i = 0;
   char* dbUrl = "";
+  char* recs;
+  char* checkStr;
+  char* checkStart;
+  char* checkEnd;
+  int fieldLen;
   
-  char* recs = fields_str;
+  if(priv){
+    recs = pub_fields_str;
+  }
+  else{
+    recs = fields_str;
+  }
 
   for (rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
         rv != -1;
@@ -365,6 +412,21 @@ char* jobs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res){
     }
     recs = apr_pstrcat(r->pool, recs, "\n", NULL);
     for (i = 0 ; i < cols ; i++) {
+      
+      // To check if a field is a member of pub_fields, just see if pub_fields_str contains
+      // " field ".
+      checkStr = strstr(pub_fields_str, fields[i]);
+      fieldLen = strlen(fields[i]);
+      checkStart = checkStr-1;
+      checkEnd = checkStr+fieldLen;
+      if(priv && (
+        checkStr == NULL ||
+        *checkStart != 0 && *checkStart != ' ' && *checkStart != '\t' ||
+        *checkEnd != 0 && *checkEnd != ' ' && *checkStart != '\t'
+        )){
+        continue;
+      }  
+      
       val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
       ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "--> %s", val);
       recs = apr_pstrcat(r->pool, recs, val, NULL);
@@ -384,7 +446,7 @@ char* jobs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res){
   return recs;
 }
 
-char* jobs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res){
+char* jobs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res, int priv){
   apr_status_t rv;
   char* val;
   apr_dbd_row_t* row = NULL;
@@ -427,8 +489,10 @@ char* jobs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res){
 /**
  * Appends text representing DB result to 'recs'.
  * Returns 0 if text output was requested or no format was specified.
+ * Setting the switch 'priv' to 1 turns on privacy. Privacy means that only the fields of
+ * 'pub_fields' are shown.
  */
-db_result* get_job_recs(request_rec* r, db_result* ret){
+db_result* get_job_recs(request_rec* r, db_result* ret, int priv){
     apr_dbd_results_t *res = NULL;
     char* last;
     char* last1;
@@ -505,8 +569,13 @@ db_result* get_job_recs(request_rec* r, db_result* ret){
         return NULL;
     }
 
-    if(get_fields(r, dbd) < 0){
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to get fields.");
+    if(priv && set_pub_fields(r) < 0){
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to set public fields.");
+      return NULL;
+    }
+    
+    if(set_fields(r, dbd) < 0){
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to set fields.");
       return NULL;
     }
     
@@ -517,11 +586,11 @@ db_result* get_job_recs(request_rec* r, db_result* ret){
     
     if(ret->format == 0){
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning text");
-      ret->res = jobs_text_format(r, dbd, res);
+      ret->res = jobs_text_format(r, dbd, res, priv);
     }
     else if(ret->format == 1){
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning XML");
-      ret->res = jobs_xml_format(r, dbd, res);
+      ret->res = jobs_xml_format(r, dbd, res, priv);
     }
     
     // Dont't do this. It causes segfaults...
@@ -650,7 +719,7 @@ void get_job_rec(request_rec *r, char* uuid, db_result* ret){
         return;
     }
     
-    if(get_fields(r, dbd) < 0){
+    if(set_fields(r, dbd) < 0){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to get fields.");
       return;
     }
@@ -921,8 +990,6 @@ int update_job_rec(request_rec *r, char* uuid) {
     }    
   }
   
-  // TODO: generate date for lastModified
-  
   /* If we return HTTP_CREATED, Apache spits out:
 
      <p>The server encountered an internal error or
@@ -1007,7 +1074,7 @@ static int gridfactory_db_handler(request_rec *r) {
     if(r->method_number == M_GET){
       if(apr_strnatcmp((r->uri) + uri_len - jobdir_len, JOB_DIR) == 0){
         /* GET /grid/db/jobs/?... */
-        get_job_recs(r, &ret);
+        get_job_recs(r, &ret, PRIVATE);
       }    
       /* GET /grid/db/jobs/UUID */
       else if(uri_len > jobdir_len) {
