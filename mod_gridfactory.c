@@ -920,6 +920,8 @@ int update_job_rec(request_rec *r, char* uuid) {
      return status;
   }
   
+  // TODO: if other than csStatus to be updated and csStatus = "ready", decline
+  
   /* Now update the database record. */
   apr_hash_index_t* index;
   char* query = "";
