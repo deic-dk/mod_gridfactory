@@ -83,6 +83,9 @@ static int id_col_nr;
 /* Name of the status column. */
 static char* STATUS_COL = "csStatus";
 
+/* ready value of the status column. */
+static char* READY = "ready";
+
 /* Name of the lastModified column. */
 static char* LASTMODIFIED_COL = "lastModified";
 
@@ -266,6 +269,10 @@ unsigned long countchr(const char *str, const char *ch)
 typedef struct {
     int format;
     char* res;
+    /* Used only by update_job_rec, to check if a job is
+     * "ready" before allowing writing. If a job is "ready"
+     * only writing the status (csStatus) is allowed. */
+    char* status;
 } db_result;
 
 int set_pub_fields(request_rec *r){
@@ -626,7 +633,7 @@ void get_job_rec_s(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
   }
 }
 
-char* job_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res){
+void job_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res, db_result* ret){
 
     apr_dbd_row_t* row = NULL;
     apr_status_t rv;
@@ -640,7 +647,7 @@ char* job_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res){
          rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1)) {
       if(rv != 0){
          ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
-          return NULL;
+          return;
       }
       if(firstrow != 0){
         rec = apr_pstrcat(r->pool, rec, "\n\n", NULL);
@@ -652,6 +659,10 @@ char* job_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res){
           rec = apr_pstrcat(r->pool, rec, "\n", NULL);
         }
         rec = apr_pstrcat(r->pool, rec, fields[i], ": ", val, NULL);
+        // Set res.status
+        if(strcmp(fields[i], STATUS_COL) == 0 && val != NULL){
+        	ret->status = val;
+        }
       }
       firstrow = -1;
       /* we can't break out here or row won't get cleaned up */
@@ -660,10 +671,10 @@ char* job_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res){
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning record:");
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, rec);
     
-    return rec;
+    ret->res = rec;
 }
 
-char* job_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res){
+void job_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res, db_result* ret){
 
     apr_dbd_row_t* row = NULL;
     apr_status_t rv;
@@ -677,7 +688,7 @@ char* job_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res){
          rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1)) {
       if(rv != 0){
          ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
-          return NULL;
+          return;
       }
       if(firstrow != 0){
         rec = apr_pstrcat(r->pool, rec, "\n\n", NULL);
@@ -689,6 +700,10 @@ char* job_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res){
           rec = apr_pstrcat(r->pool, rec, "\n  <", fields[i], ">", val,
              "</", fields[i], ">", NULL);
         }
+        // Set res.status
+        if(strcmp(fields[i], STATUS_COL) == 0 && val != NULL){
+        	ret->status = val;
+        }
       }
       firstrow = -1;
       /* we can't break out here or row won't get cleaned up */
@@ -698,7 +713,8 @@ char* job_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res){
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning record:");
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, rec);
     
-    return rec;
+    ret->res = rec;
+
 }
 
 void get_job_rec(request_rec *r, char* uuid, db_result* ret){
@@ -710,7 +726,7 @@ void get_job_rec(request_rec *r, char* uuid, db_result* ret){
     char* last1;
     ret->format = 0;
 
-    apr_dbd_results_t* res = (apr_dbd_results_t*)apr_pcalloc(r->pool, 5120);  
+    apr_dbd_results_t* dbres = (apr_dbd_results_t*)apr_pcalloc(r->pool, 5120);  
     //apr_dbd_results_t* res = NULL;
   
     ap_dbd_t* dbd = dbd_acquire_fn(r);
@@ -728,14 +744,14 @@ void get_job_rec(request_rec *r, char* uuid, db_result* ret){
     if(conf->ps_ == NULL ||
       apr_strnatcasecmp(conf->ps_, "On") != 0){
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "PrepareStatements not enabled, %s.", conf->ps_);
-      get_job_rec_s(r, dbd, res, uuid);
+      get_job_rec_s(r, dbd, dbres, uuid);
     }
     else{
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "PrepareStatements enabled, %s.", conf->ps_);
-      get_job_rec_ps(r, dbd, res, uuid);
+      get_job_rec_ps(r, dbd, dbres, uuid);
     }
     
-    if(res == NULL){
+    if(dbres == NULL){
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Nothing returned from query.");
       return;
     }
@@ -766,10 +782,10 @@ void get_job_rec(request_rec *r, char* uuid, db_result* ret){
       }
     }
     if(ret->format == 0){
-      ret->res = job_text_format(r, dbd, res);
+      job_text_format(r, dbd, dbres, ret);
     }
     else if(ret->format == 1){
-      ret->res = job_xml_format(r, dbd, res);
+      job_xml_format(r, dbd, dbres, ret);
     }
     
     ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Returning:");
@@ -920,8 +936,6 @@ int update_job_rec(request_rec *r, char* uuid) {
      return status;
   }
   
-  // TODO: if other than csStatus to be updated and csStatus = "ready", decline
-  
   /* Now update the database record. */
   apr_hash_index_t* index;
   char* query = "";
@@ -937,15 +951,29 @@ int update_job_rec(request_rec *r, char* uuid) {
     const char *k;
     const char *v;
     apr_hash_this(index, (const void**)&k, NULL, (void**)&v);
-    if(status_only == 0 && apr_strnatcmp(v, STATUS_COL) == 0){
+    if(status_only == 0 && apr_strnatcmp(v, STATUS_COL) == 0 &&
+       apr_strnatcmp(v, LASTMODIFIED_COL) != 0){
       status_only = 1;
     }
-    if(status_only < 2 && apr_strnatcmp(v, STATUS_COL) != 0){
+    if(status_only < 2 && apr_strnatcmp(v, STATUS_COL) != 0 &&
+       apr_strnatcmp(v, LASTMODIFIED_COL) != 0){
       status_only = 2;
     }
     if(apr_strnatcmp(v, LASTMODIFIED_COL) != 0){
       query = apr_pstrcat(r->pool, query, ", ", ap_escape_html(r->pool, k), " = '",
                         ap_escape_html(r->pool, v), "'", NULL);
+    }
+  }
+  
+  /* If someone is trying to update other fields than csStatus or just
+     changing lastModified, check if the job status starts with 'ready';
+     if it does, decline. */
+  if(status_only != 1){
+  	db_result ret = {0, "", ""};
+    get_job_rec(r, uuid, &ret);
+    if(ret.status && strstr(READY, ret.status) != NULL){
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "For %s jobs, only changing csStatus is allowed.", READY);
+      return DECLINED;
     }
   }
 
@@ -1038,7 +1066,7 @@ static int gridfactory_db_handler(request_rec *r) {
     char* base_path;
     char* tmp_url;
     char* path_end;
-    db_result ret = {0, ""};
+    db_result ret = {0, "", ""};
     
     conf = (config_rec*)ap_get_module_config(r->per_dir_config, &gridfactory_module);
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "handler %s", r->handler);
@@ -1071,7 +1099,7 @@ static int gridfactory_db_handler(request_rec *r) {
       apr_cpystrn(base_url, conf->url_, strlen(conf->url_)+1);
     }
 
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Request %s", r->the_request);
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Request: %s", r->the_request);
     /* GET */
     if(r->method_number == M_GET){
       if(apr_strnatcmp((r->uri) + uri_len - jobdir_len, JOB_DIR) == 0){
