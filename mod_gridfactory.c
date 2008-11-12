@@ -1088,7 +1088,8 @@ static int fixup_path(request_rec *r)
 static int gridfactory_db_handler(request_rec *r) {
     char* job_uuid;
     config_rec* conf;
-    int uri_len = strlen(r->uri);
+    int uri_len = 0;
+    if (r->uri != NULL) uri_len = strlen(r->uri);
     int jobdir_len = strlen(JOB_DIR);
     int ok = OK;
     char* base_path;
@@ -1096,6 +1097,10 @@ static int gridfactory_db_handler(request_rec *r) {
     char* path_end;
     db_result ret = {0, "", ""};
     
+    if (r->per_dir_config == NULL) {
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "directory for mod_gridfactory is null. Maybe your config is missing a Directory directive.");
+      return DECLINED;      
+    }    
     conf = (config_rec*)ap_get_module_config(r->per_dir_config, &gridfactory_module);
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "handler %s", r->handler);
 
