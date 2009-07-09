@@ -961,8 +961,8 @@ int update_job_rec(request_rec *r, char* uuid) {
     const char *k;
     const char *v;
     apr_hash_this(index, (const void**)&k, NULL, (void**)&v);
-    if(status_only < 2 && apr_strnatcmp(k, STATUS_COL) == 0 ||
-       apr_strnatcmp(k, PROVIDERINFO_COL) == 0){
+    if(status_only < 2 && (apr_strnatcmp(k, STATUS_COL) == 0 ||
+       apr_strnatcmp(k, PROVIDERINFO_COL) == 0)){
       status_only = status_only + 1;
     }
     if(apr_strnatcmp(k, PROVIDERINFO_COL) == 0 ){
