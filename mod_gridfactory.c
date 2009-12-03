@@ -290,7 +290,6 @@ int set_pub_fields(request_rec *r){
   }
   
   char* field;
-  char* eq;
   const char* delim = "\t";
   char* last;
   int i = 0;
@@ -1034,7 +1033,7 @@ int update_job_rec(request_rec *r, char* uuid) {
     char* str = apr_pstrcat(r->pool, "%/", uuid, NULL);
     if(apr_dbd_pvquery(dbd->driver, r->pool, dbd->handle, &nrows,
        statement, status, provider, str) != 0) {
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error for %i, %s", status, provider, str);
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error for %i, %s, %s", status, provider, str);
     }
   }
   else{

@@ -7,7 +7,7 @@ MODNAME = gridfactory
 MODFILE = mod_${MODNAME}.so
 SRC2 = mod_${MODNAME}.c
 MODFILE2 = mod_${MODNAME}.la
-APXS2 = apxs2
+APXS2 = /usr/sbin/apxs
 
 PKGFILES = ${SRC2} RELEASE README Makefile
 
