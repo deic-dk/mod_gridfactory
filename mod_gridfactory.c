@@ -985,7 +985,9 @@ int update_job_rec(request_rec *r, char* uuid) {
   	db_result ret = {0, "", ""};
     get_job_rec(r, uuid, &ret);
     if(ret.status && strstr(READY, ret.status) != NULL){
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "For %s jobs, only changing csStatus and providerInfo is allowed. %i --> %s", READY, status_only, query);
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+         "For %s jobs, only changing csStatus and providerInfo is allowed. %s --> %s",
+         ret.status, status_only, query);
       return DECLINED;
     }
   }
