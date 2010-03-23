@@ -354,9 +354,9 @@ int set_fields(request_rec *r, ap_dbd_t* dbd){
     
     /* Get the list of fields. */
     i = 0;
-    for (rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
-         rv != -1;
-         rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1)) {
+    int rownum =1;
+    while (rownum<=cols){
+        rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, rownum);
         if(rv != 0){
             ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
             return -1;
@@ -376,6 +376,7 @@ int set_fields(request_rec *r, ap_dbd_t* dbd){
         }
         firstrow = -1;
         ++i;
+        rownum++;
         /* we can't break out here or row won't get cleaned up */
     }
     /* append the pseudo-column 'dbUrl' */
@@ -409,24 +410,27 @@ char* jobs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res, in
   char* checkStart;
   char* checkEnd;
   int fieldLen;
-  
+
+  int numrows = apr_dbd_num_tuples(dbd->driver,res);
+
   if(priv){
     recs = pub_fields_str;
+
   }
   else{
     recs = fields_str;
   }
 
-  for (rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
-        rv != -1;
-        rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1)) {
+  int rownum = 1;
+  while (rownum<=numrows){
+    rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, rownum);
     if (rv != 0) {
         ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
         return NULL;
     }
     recs = apr_pstrcat(r->pool, recs, "\n", NULL);
     for (i = 0 ; i < cols ; i++) {
-      
+
       // To check if a field is a member of pub_fields, just see if pub_fields_str contains
       // " field ".
       checkStr = strstr(pub_fields_str, fields[i]);
@@ -452,9 +456,10 @@ char* jobs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res, in
     /* Append the value for the pseudo-column 'dbUrl'*/
     recs = apr_pstrcat(r->pool, recs, dbUrl, NULL);
     /* we can't break out here or row won't get cleaned up */
+    rownum++;
   }
   
-  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning rows");
+  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning %i rows", numrows);
   ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, recs);
 
   return recs;
@@ -467,12 +472,13 @@ char* jobs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res, int
   int i = 0;
   char* id = "";
   char* recs;
-  
+
   recs = "<?xml version=\"1.0\"?>\n<jobs>";
 
-  for (rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
-        rv != -1;
-        rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1)) {
+  int numrows = apr_dbd_num_tuples(dbd->driver,res);
+  int rownum = 1;
+  while (rownum <= numrows){
+    rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, rownum);
     if (rv != 0) {
         ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
         return NULL;
@@ -491,6 +497,7 @@ char* jobs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res, int
     }
     recs = apr_pstrcat(r->pool, recs, " ", DBURL_COL, "=\"", constructURL(r, id), "\"/>", NULL);
     /* we can't break out here or row won't get cleaned up */
+    rownum++;
   }
   recs = apr_pstrcat(r->pool, recs, "\n</jobs> ", NULL);
   
@@ -597,7 +604,7 @@ db_result* get_job_recs(request_rec* r, db_result* ret, int priv){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error");
       return NULL;
     }
-    
+
     if(ret->format == 0){
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning text");
       ret->res = jobs_text_format(r, dbd, res, priv);
@@ -649,9 +656,10 @@ void job_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res, db_r
     int firstrow = 0;
     char* rec = "";
 
-    for(rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
-         rv != -1;
-         rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1)) {
+    int numrows = apr_dbd_num_tuples(dbd->driver,res);
+    int rownum = 1;
+    while (rownum<=numrows) {
+      rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, rownum);
       if(rv != 0){
          ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
           return;
@@ -672,6 +680,7 @@ void job_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res, db_r
         }
       }
       firstrow = -1;
+      rownum++;
       /* we can't break out here or row won't get cleaned up */
     }
     
@@ -689,10 +698,11 @@ void job_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res, db_re
     int i;
     int firstrow = 0;
     char* rec = "<?xml version=\"1.0\"?>\n<job>";
-
-    for(rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
-         rv != -1;
-         rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1)) {
+    
+    int numrows = apr_dbd_num_tuples(dbd->driver,res);
+    int rownum = 1;
+    while (rownum<=numrows){
+      rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, rownum);
       if(rv != 0){
          ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
           return;
@@ -713,6 +723,7 @@ void job_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res, db_re
         }
       }
       firstrow = -1;
+      rownum++;
       /* we can't break out here or row won't get cleaned up */
     }
     rec = apr_pstrcat(r->pool, rec, "\n</job> ", NULL);
@@ -1087,6 +1098,8 @@ static int fixup_path(request_rec *r)
 }
 
 static int gridfactory_db_handler(request_rec *r) {
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "entering mod_gridfactory");
+
     char* job_uuid;
     config_rec* conf;
     int uri_len = 0;
@@ -1097,7 +1110,7 @@ static int gridfactory_db_handler(request_rec *r) {
     char* tmp_url;
     char* path_end;
     db_result ret = {0, "", ""};
-    
+
     if (r->per_dir_config == NULL) {
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "directory for mod_gridfactory is null. Maybe your config is missing a Directory directive.");
       return DECLINED;      
