@@ -368,7 +368,6 @@ int set_fields(request_rec *r, ap_dbd_t* dbd){
         }
         ret = apr_pstrcat(r->pool, ret, val, NULL);
         apr_cpystrn(fields[i], val, strlen(val)+1);
-        ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Appended to fields: %s", ret);
         if(apr_strnatcmp(val, ID_COL) == 0){
           id_col_nr = i;
         }
