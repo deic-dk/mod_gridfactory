@@ -326,7 +326,7 @@ int set_fields(request_rec *r, ap_dbd_t* dbd){
     }
       
     apr_dbd_results_t *res = NULL;
-    apr_dbd_row_t* row = NULL;
+    apr_dbd_row_t* row;
     char* val;
     int firstrow = 0;
     int i = 0;
@@ -354,9 +354,9 @@ int set_fields(request_rec *r, ap_dbd_t* dbd){
     
     /* Get the list of fields. */
     i = 0;
-    int rownum =1;
-    while (rownum<=cols){
-        rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, rownum);
+    while(i<cols){
+    	  row = NULL;
+        rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
         if(rv != 0){
             ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
             return -1;
@@ -368,6 +368,7 @@ int set_fields(request_rec *r, ap_dbd_t* dbd){
         }
         ret = apr_pstrcat(r->pool, ret, val, NULL);
         apr_cpystrn(fields[i], val, strlen(val)+1);
+        ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Appended to fields: %s", ret);
         if(apr_strnatcmp(val, ID_COL) == 0){
           id_col_nr = i;
         }
@@ -375,19 +376,16 @@ int set_fields(request_rec *r, ap_dbd_t* dbd){
           status_col_nr = i;
         }
         firstrow = -1;
-        ++i;
-        rownum++;
+        i++;
         /* we can't break out here or row won't get cleaned up */
     }
     /* append the pseudo-column 'dbUrl' */
     ret = apr_pstrcat(r->pool, ret, "\t", NULL);
-    ret = apr_pstrcat(r->pool, ret, DBURL_COL, NULL);
-    
+    ret = apr_pstrcat(r->pool, ret, DBURL_COL, NULL);    
     
     apr_cpystrn(fields_str, ret, strlen(ret)+1);
     
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Found fields:");
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, fields_str);
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Found fields: %s", fields_str);
     
     return 0;
 }
@@ -402,7 +400,7 @@ char* constructURL(request_rec* r, char* job_id){
 char* jobs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res, int priv){
   apr_status_t rv;
   char* val;
-  apr_dbd_row_t* row = NULL;
+  apr_dbd_row_t* row;
   int i = 0;
   char* dbUrl = "";
   char* recs;
@@ -422,8 +420,9 @@ char* jobs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res, in
   }
 
   int rownum = 1;
-  while (rownum<=numrows){
-    rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, rownum);
+  while(rownum<=numrows){
+  	row = NULL;
+    rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
     if (rv != 0) {
         ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
         return NULL;
@@ -468,7 +467,7 @@ char* jobs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res, in
 char* jobs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res, int priv){
   apr_status_t rv;
   char* val;
-  apr_dbd_row_t* row = NULL;
+  apr_dbd_row_t* row;
   int i = 0;
   char* id = "";
   char* recs;
@@ -478,7 +477,8 @@ char* jobs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res, int
   int numrows = apr_dbd_num_tuples(dbd->driver,res);
   int rownum = 1;
   while (rownum <= numrows){
-    rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, rownum);
+  	row = NULL;
+    rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
     if (rv != 0) {
         ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
         return NULL;
@@ -649,7 +649,7 @@ void get_job_rec_s(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
 
 void job_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res, db_result* ret){
 
-    apr_dbd_row_t* row = NULL;
+    apr_dbd_row_t* row;
     apr_status_t rv;
     char* val;
     int i;
@@ -658,8 +658,9 @@ void job_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res, db_r
 
     int numrows = apr_dbd_num_tuples(dbd->driver,res);
     int rownum = 1;
-    while (rownum<=numrows) {
-      rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, rownum);
+    while(rownum<=numrows){
+    	row = NULL;
+      rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
       if(rv != 0){
          ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
           return;
@@ -692,7 +693,7 @@ void job_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res, db_r
 
 void job_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res, db_result* ret){
 
-    apr_dbd_row_t* row = NULL;
+    apr_dbd_row_t* row;
     apr_status_t rv;
     char* val;
     int i;
@@ -701,8 +702,9 @@ void job_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res, db_re
     
     int numrows = apr_dbd_num_tuples(dbd->driver,res);
     int rownum = 1;
-    while (rownum<=numrows){
-      rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, rownum);
+    while(rownum<=numrows){
+    	row = NULL;
+      rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
       if(rv != 0){
          ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
           return;
