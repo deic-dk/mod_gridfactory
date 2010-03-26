@@ -66,90 +66,91 @@
 
 module AP_MODULE_DECLARE_DATA authn_dbd_module;
 
+#define JOB_TABLE_NUM 1
+#define  HIST_TABLE_NUM 2
+#define  NODE_TABLE_NUM 3
+
 /* The sub-directory containing the job information. */
-static char* JOB_DIR = "/jobs/";
-static int JOB_TABLE_NUM = 1;
+static const char* JOB_DIR = "/jobs/";
 /* The sub-directory containing the job history. */
-static char* HIST_DIR = "/history/";
-static int HIST_TABLE_NUM = 2;
+static const char* HIST_DIR = "/history/";
 /* The sub-directory containing the node information. */
-static char* NODE_DIR = "/nodes/";
-static int NODE_TABLE_NUM = 3;
+static const char* NODE_DIR = "/nodes/";
 
 /* Keys in the has table of prepared statements. */
-static char* LABEL = "gridfactory_dbd_0";
-static char* LABEL1 = "gridfactory_dbd_1";
-static char* LABEL2 = "gridfactory_dbd_2";
-static char* LABEL3 = "gridfactory_dbd_3";
-static char* LABEL4 = "gridfactory_dbd_4";
-static char* LABEL5 = "gridfactory_dbd_5";
+static const char* LABEL = "gridfactory_dbd_0";
+static const char* LABEL1 = "gridfactory_dbd_1";
+static const char* LABEL2 = "gridfactory_dbd_2";
+static const char* LABEL3 = "gridfactory_dbd_3";
+static const char* LABEL4 = "gridfactory_dbd_4";
+static const char* LABEL5 = "gridfactory_dbd_5";
 
 /* Name of the identifier column. */
-static char* ID_COL = "identifier";
+static const char* ID_COL = "identifier";
 
 /* Column holding the identifier. */
 static int id_col_nr;
 
 /* Name of the status column. */
-static char* STATUS_COL = "csStatus";
+static const char* STATUS_COL = "csStatus";
 
 /* ready value of the status column. */
-static char* READY = "ready";
+static const char* READY = "ready";
 
 /* Name of the lastModified column. */
-static char* LASTMODIFIED_COL = "lastModified";
+static const char* LASTMODIFIED_COL = "lastModified";
 
 /* Name of the providerInfo column. */
-static char* PROVIDERINFO_COL = "providerInfo";
+static const char* PROVIDERINFO_COL = "providerInfo";
 
 
 /* Column holding the status. */
 static int status_col_nr;
 
 /* Name of the DB URL pseudo-column. */
-static char* DBURL_COL = "dbUrl";
+static const char* DBURL_COL = "dbUrl";
 
 /* SQL query to get list of fields. */
-static char* JOB_REC_SHOW_F_Q = "SHOW fields FROM `jobDefinition`";
+static const char* JOB_REC_SHOW_F_Q = "SHOW fields FROM `jobDefinition`";
 
 /* SQL query to get all job definition records. */
-static char* JOB_RECS_SELECT_Q = "SELECT * FROM `jobDefinition`";
+static const char* JOB_RECS_SELECT_Q = "SELECT * FROM `jobDefinition`";
 
 /* SQL query to get all job history records. */
-static char* HIST_RECS_SELECT_Q = "SELECT * FROM `jobHistory`";
+static const char* HIST_RECS_SELECT_Q = "SELECT * FROM `jobHistory`";
 
 /* SQL query to get all node information records. */
-static char* NODE_RECS_SELECT_Q = "SELECT * FROM `nodeInformation`";
+static const char* NODE_RECS_SELECT_Q = "SELECT * FROM `nodeInformation`";
 
 /* Prepared statement string to get job record. */
-static char* JOB_REC_SELECT_PS = "SELECT * FROM jobDefinition WHERE identifier LIKE ?";
+static const char* JOB_REC_SELECT_PS = "SELECT * FROM jobDefinition WHERE identifier LIKE ?";
 
 /* Prepared statement string to get history record. */
-static char* HIST_REC_SELECT_PS = "SELECT * FROM jobHistory WHERE identifier LIKE ?";
+static const char* HIST_REC_SELECT_PS = "SELECT * FROM jobHistory WHERE identifier LIKE ?";
 
 /* Prepared statement string to get node record. */
-static char* NODE_REC_SELECT_PS = "SELECT * FROM nodeInformation WHERE identifier LIKE ?";
+static const char* NODE_REC_SELECT_PS = "SELECT * FROM nodeInformation WHERE identifier LIKE ?";
 
 /* Query to get job record. */
-static char* JOB_REC_SELECT_Q = "SELECT * FROM `jobDefinition` WHERE identifier LIKE '%/%s'";
+static const char* JOB_REC_SELECT_Q = "SELECT * FROM `jobDefinition` WHERE identifier LIKE '%/%s'";
 
 /* Query to get history record. */
-static char* HIST_REC_SELECT_Q = "SELECT * FROM `jobHistory` WHERE identifier LIKE '%/%s'";
+static const char* HIST_REC_SELECT_Q = "SELECT * FROM `jobHistory` WHERE identifier LIKE '%/%s'";
 
 /* Query to get node record. */
-static char* NODE_REC_SELECT_Q = "SELECT * FROM `nodeInformation` WHERE identifier LIKE '%/%s'";
+static const char* NODE_REC_SELECT_Q = "SELECT * FROM `nodeInformation` WHERE identifier LIKE '%/%s'";
 
 /* Prepared statement string to update job record. */
-static char* JOB_REC_UPDATE_PS_1 = "UPDATE `jobDefinition` SET lastModified = NOW() WHERE identifier LIKE ?";
+static const char* JOB_REC_UPDATE_PS_1 = "UPDATE `jobDefinition` SET lastModified = NOW() WHERE identifier LIKE ?";
 
 /* Prepared statement string to update job record. */
-static char* JOB_REC_UPDATE_PS_2 = "UPDATE `jobDefinition` SET lastModified = NOW(), csStatus = ? WHERE identifier LIKE ?";
+static const char* JOB_REC_UPDATE_PS_2 = "UPDATE `jobDefinition` SET lastModified = NOW(), csStatus = ? WHERE identifier LIKE ?";
 
 /* Prepared statement string to update job record. */
-static char* JOB_REC_UPDATE_PS_3 = "UPDATE `jobDefinition` SET lastModified = NOW(), csStatus = ?, providerInfo = ? WHERE identifier LIKE ?";
+static const char* JOB_REC_UPDATE_PS_3 = "UPDATE `jobDefinition` SET lastModified = NOW(), csStatus = ?, providerInfo = ? WHERE identifier LIKE ?";
 
 /* Query to update job record. */
-static char* JOB_REC_UPDATE_Q = "UPDATE `jobDefinition` SET lastModified = NOW()";
+static const char* JOB_REC_UPDATE_Q = "UPDATE `jobDefinition` SET lastModified = NOW()";
 
 /* Optional function - look it up once in post_config. */
 static ap_dbd_t* (*dbd_acquire_fn)(request_rec*) = NULL;
@@ -182,31 +183,11 @@ static char* TEXT_FORMAT_STR = "text";
 /* XML format directive. */
 static char* XML_FORMAT_STR = "xml";
 
-/* Fields of the jobDefinition table. */
-char* job_fields_str = "";
-/* Fields of the jobDefinition table. */
-char** job_fields;
-/* Number of fields. */
-int job_cols = 0;
 /* Public fields of the jobDefinition table. */
-char* job_pub_fields_str = "identifier\tname\tcsStatus\tuserInfo\tcreated\tlastModified\tgridTime\tmemory\topSys\truntimeEnvironments\tallowedVOs\tvirtualize\tdbUrl";
-/* Public fields of the jobDefinition table. */
-char** job_pub_fields;
-/* Number of public fields. */
-int job_pub_cols = 0;
-acfi
-/* Fields of the nodeInformation table. */
-char* node_fields_str = "";
-/* Fields of the nodeInformation table. */
-char** node_fields;
-/* Number of fields. */
-int node_cols = 0;
+static char* JOB_PUB_FIELDS_STR = "identifier\tname\tcsStatus\tuserInfo\tcreated\tlastModified\tgridTime\tmemory\topSys\truntimeEnvironments\tallowedVOs\tvirtualize\tdbUrl";
+
 /* Public fields of the nodeInformation table. */
-char* node_pub_fields_str = "identifier\thost\tmaxJobs\tallowedVOs\tvirtualize\thypervisors\tmaxMBPerJob\tprivileges\tinPorts\toutPorts\tproviderInfo\tcreated\tlastModified\tdbUrl";
-/* Public fields of the nodeInformation table. */
-char** node_pub_fields;
-/* Number of public fields. */
-int node_pub_cols = 0;
+static char* NODE_PUB_FIELDS_STR = "identifier\thost\tmaxJobs\tallowedVOs\tvirtualize\thypervisors\tmaxMBPerJob\tprivileges\tinPorts\toutPorts\tproviderInfo\tcreated\tlastModified\tdbUrl";
 
 /* Base URL for the DB web service. */
 char* base_url;
@@ -324,12 +305,8 @@ typedef struct {
     char* status;
 } db_result;
 
-int set_pub_fields(request_rec *r){
+int set_pub_fields(request_rec *r, char* pub_fields_str, char** pub_fields){
 
-  if (pub_cols == 0) {
-    return 0;
-  }
-  
   char* field;
   const char* delim = "\t";
   char* last;
@@ -346,11 +323,11 @@ int set_pub_fields(request_rec *r){
     apr_cpystrn(pub_fields[i], field, strlen(field)+1);
     ++i;
   }
-  pub_cols = i;
+
   return 0;
 }
 
-int set_fields(request_rec *r, ap_dbd_t* dbd){
+int set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str, char** fields){
   
     if (strcmp(fields_str, "") != 0) {
       return 0;
@@ -377,7 +354,7 @@ int set_fields(request_rec *r, ap_dbd_t* dbd){
         return -1;
     }
     
-    cols = apr_dbd_num_tuples(dbd->driver, res);
+    int cols = apr_dbd_num_tuples(dbd->driver, res);
     
     fields = malloc(cols * sizeof(char*));
     if(fields == NULL){
@@ -437,7 +414,7 @@ char* constructURL(request_rec* r, char* job_id){
   return id;
 }
 
-char* jobs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
+char* recs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
    int priv, char* pub_fields_str, char* fields_str, char** fields){
   apr_status_t rv;
   char* val;
@@ -449,7 +426,8 @@ char* jobs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
   char* checkStart;
   char* checkEnd;
   int fieldLen;
-
+  
+  int cols = apr_dbd_num_cols(dbd->driver,res);
   int numrows = apr_dbd_num_tuples(dbd->driver,res);
 
   if(priv){
@@ -459,7 +437,7 @@ char* jobs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
   else{
     recs = fields_str;
   }
-
+  
   int rownum = 1;
   while(rownum<=numrows){
     row = NULL;
@@ -505,17 +483,31 @@ char* jobs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
   return recs;
 }
 
-char* jobs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res, int priv){
+char* recs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
+   int priv, int table_num){
   apr_status_t rv;
   char* val;
   apr_dbd_row_t* row;
   int i = 0;
   char* id = "";
   char* recs;
+  char* rec_name = (char*)apr_pcalloc(r->pool, 8 * sizeof(char*));
+  char* job_name = "job";
+  char* hist_name = "history";
+  char* node_name = "nodes";
+  
+  switch(table_num){
+    case JOB_TABLE_NUM: snprintf(rec_name, strlen(job_name)+1, job_name);
+    case HIST_TABLE_NUM: snprintf(rec_name, strlen(hist_name)+1, hist_name);
+    case NODE_TABLE_NUM: snprintf(rec_name, strlen(node_name)+1, node_name);
+    default: ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
+  }
 
-  recs = "<?xml version=\"1.0\"?>\n<jobs>";
+  recs = "<?xml version=\"1.0\"?>\n<";
+  recs = apr_pstrcat(r->pool, recs, rec_name, "s>", NULL);
 
   int numrows = apr_dbd_num_tuples(dbd->driver,res);
+  int cols = apr_dbd_num_cols(dbd->driver,res);
   int rownum = 1;
   while (rownum <= numrows){
     row = NULL;
@@ -524,7 +516,7 @@ char* jobs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res, int
         ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
         return NULL;
     }
-    recs = apr_pstrcat(r->pool, recs, "\n  <job", NULL);
+    recs = apr_pstrcat(r->pool, recs, "\n  <", rec_name, NULL);
     for (i = 0 ; i < cols ; i++) {
       val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
       ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "--> %s", val);
@@ -540,7 +532,7 @@ char* jobs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res, int
     /* we can't break out here or row won't get cleaned up */
     rownum++;
   }
-  recs = apr_pstrcat(r->pool, recs, "\n</jobs> ", NULL);
+  recs = apr_pstrcat(r->pool, recs, "\n</", rec_name, "s> ", NULL);
   
   ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning rows");
   ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, recs);
@@ -565,6 +557,10 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
     int end = -1;
     ret->format = 0;
     char* query = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
+    char* fields_str = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
+    char** fields = (char**)apr_pcalloc(r->pool, 256 * sizeof(char**));
+    char* pub_fields_str = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
+    char** pub_fields = (char**)apr_pcalloc(r->pool, 256 * sizeof(char**));
     
     //apr_cpystrn(query, JOB_RECS_SELECT_Q, strlen(JOB_RECS_SELECT_Q)+1);
     switch(table_num){
@@ -641,29 +637,28 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to acquire database connection.");
         return NULL;
     }
-
-    if(priv && set_pub_fields(r) < 0){
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to set public fields.");
-      return NULL;
-    }
-    
-    if(set_fields(r, dbd) < 0){
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to set fields.");
-      return NULL;
-    }
     
     if(apr_dbd_select(dbd->driver, r->pool, dbd->handle, &res, query, 1) != 0){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error");
       return NULL;
     }
 
+    // format result
     if(ret->format == 0){
+      if(priv && set_pub_fields(r, pub_fields_str, pub_fields) < 0){
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to set public fields.");
+        return NULL;
+      }
+      if(set_fields(r, dbd, fields_str, fields) < 0){
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to set fields.");
+        return NULL;
+      }
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning text");
-      ret->res = jobs_text_format(r, dbd, res, priv);
+      ret->res = recs_text_format(r, dbd, res, priv, pub_fields_str, fields_str, fields);
     }
     else if(ret->format == 1){
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning XML");
-      ret->res = jobs_xml_format(r, dbd, res, priv);
+      ret->res = recs_xml_format(r, dbd, res, priv, table_num);
     }
     
     // Dont't do this. It causes segfaults...
@@ -690,11 +685,14 @@ void get_rec_ps(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
 
     switch(table_num){
       case JOB_TABLE_NUM:
-        apr_dbd_prepared_t* statement = apr_hash_get(dbd->prepared, LABEL, APR_HASH_KEY_STRING);
-      case HIST_TABLE_NUM: snprintf(query, strlen(HIST_REC_SELECT_Q)+1, HIST_REC_SELECT_Q);
-        apr_dbd_prepared_t* statement = apr_hash_get(dbd->prepared, LABEL4, APR_HASH_KEY_STRING);
-      case NODE_TABLE_NUM: snprintf(query, strlen(NODE_REC_SELECT_Q)+1, NODE_REC_SELECT_Q);
-        apr_dbd_prepared_t* statement = apr_hash_get(dbd->prepared, LABEL5, APR_HASH_KEY_STRING);
+        snprintf(query, strlen(JOB_REC_SELECT_Q)+1, JOB_REC_SELECT_Q);
+        statement = apr_hash_get(dbd->prepared, LABEL, APR_HASH_KEY_STRING);
+      case HIST_TABLE_NUM:
+        snprintf(query, strlen(HIST_REC_SELECT_Q)+1, HIST_REC_SELECT_Q);
+        statement = apr_hash_get(dbd->prepared, LABEL4, APR_HASH_KEY_STRING);
+      case NODE_TABLE_NUM:
+        snprintf(query, strlen(NODE_REC_SELECT_Q)+1, NODE_REC_SELECT_Q);
+        statement = apr_hash_get(dbd->prepared, LABEL5, APR_HASH_KEY_STRING);
       default: ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
     }
 
@@ -711,7 +709,7 @@ void get_rec_ps(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
     }
 }
 
-void job_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
+void rec_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
    db_result* ret, char** fields){
 
     apr_dbd_row_t* row;
@@ -722,6 +720,7 @@ void job_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
     char* rec = "";
 
     int numrows = apr_dbd_num_tuples(dbd->driver,res);
+    int cols = apr_dbd_num_cols(dbd->driver,res);
     int rownum = 1;
     while(rownum<=numrows){
       row = NULL;
@@ -756,7 +755,7 @@ void job_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
     ret->res = rec;
 }
 
-void job_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
+void rec_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
    db_result* ret, char** fields){
 
     apr_dbd_row_t* row;
@@ -767,6 +766,7 @@ void job_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
     char* rec = "<?xml version=\"1.0\"?>\n<job>";
     
     int numrows = apr_dbd_num_tuples(dbd->driver,res);
+    int cols = apr_dbd_num_cols(dbd->driver,res);
     int rownum = 1;
     while(rownum<=numrows){
       row = NULL;
@@ -804,7 +804,7 @@ void job_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
 }
 
 /**
- * Get job definition or job history record - which is determined by 'query'.
+ * Get job definition, job history or node information record - which is determined by 'query'.
  */
 void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
   
@@ -815,6 +815,8 @@ void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
     char* last1;
     ret->format = 0;
     char* query = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
+    char* fields_str = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
+    char** fields = (char**)apr_pcalloc(r->pool, 256 * sizeof(char**));
     
     //apr_cpystrn(query, JOB_REC_SELECT_Q, strlen(JOB_REC_SELECT_Q)+1);
     switch(table_num){
@@ -833,7 +835,7 @@ void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
         return;
     }
     
-    if(set_fields(r, dbd) < 0){
+    if(set_fields(r, dbd, fields_str, fields) < 0){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to get fields.");
       return;
     }
@@ -880,10 +882,10 @@ void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
       }
     }
     if(ret->format == 0){
-      job_text_format(r, dbd, dbres, ret);
+      rec_text_format(r, dbd, dbres, ret, fields);
     }
     else if(ret->format == 1){
-      job_xml_format(r, dbd, dbres, ret);
+      rec_xml_format(r, dbd, dbres, ret, fields);
     }
     
     ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Returning:");
@@ -1178,92 +1180,6 @@ static int fixup_path(request_rec *r)
   return OK;
 }
 
-static int gridfactory_db_handler(request_rec *r) {
-    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "entering gridfactory_db_handler");
-
-    config_rec* conf;
-    int uri_len = 0;
-    if (r->uri != NULL) uri_len = strlen(r->uri);
-    char* base_path;
-    char* tmp_url;
-    char* path_end;
-    // This is either /jobs/ /history/ or /nodes/
-    char* main_path;
-    // This is set to 1, 2 or 3 in each of the above cases
-    int table_num = 0;
-
-    if (r->per_dir_config == NULL) {
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "directory for mod_gridfactory is null. Maybe your config is missing a Directory directive.");
-      return DECLINED;      
-    }    
-    conf = (config_rec*)ap_get_module_config(r->per_dir_config, &gridfactory_module);
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "handler %s", r->handler);
-
-    if (!r->handler || strcmp(r->handler, "gridfactory"))
-      return DECLINED;
-    
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "URI: %s", r->uri);
-
-    base_path = (char*)apr_pcalloc(r->pool, sizeof(char*) * 256);
-    main_path = (char*)apr_pcalloc(r->pool, sizeof(char*) * 256);
-    apr_cpystrn(base_path, r->uri, uri_len + 1);
-    path_end = strstr(base_path, JOB_DIR);
-    if(path_end != NULL){
-      table_num = JOB_TABLE_NUM;
-      apr_cpystrn(main_path, JOB_DIR);
-      apr_cpystrn(base_path, base_path , uri_len - strlen(path_end) + 1);
-      tmp_url = apr_pstrcat(r->pool, tmp_url, base_path, JOB_DIR, NULL);
-    }
-    if(path_end == NULL){
-      path_end = strstr(base_path, HIST_DIR);
-      if(path_end != NULL){
-        table_num = HIST_TABLE_NUM;
-        apr_cpystrn(main_path, HIST_DIR);
-        apr_cpystrn(base_path, base_path , uri_len - strlen(path_end) + 1);
-        tmp_url = apr_pstrcat(r->pool, tmp_url, base_path, HIST_DIR, NULL);
-      }
-    }
-    if(path_end == NULL){
-      path_end = strstr(base_path, NODE_DIR);
-      if(path_end != NULL){
-        table_num = NODE_TABLE_NUM;
-        apr_cpystrn(main_path, NODE_DIR);
-        apr_cpystrn(base_path, base_path , uri_len - strlen(path_end) + 1);
-        tmp_url = apr_pstrcat(r->pool, tmp_url, base_path, NODE_DIR, NULL);
-      }
-    }
-    /**
-     * If DBBaseURL was not set in the preferences, default to
-     * https://this.server/[base]
-     * where  [base] is what comes before either /jobs/ /history/ or /nodes/ in
-     * request URI. Typically
-     * https://this.server/db/
-     * With this, base_url will be set to one of
-     * https://this.server/db/jobs/, https://this.server/db/history/, https://this.server/db/nodes/ 
-     */
-    if(conf->url_ == NULL || strcmp(conf->url_, "") == 0){
-      tmp_url = apr_pstrcat(r->pool, "https://", r->server->server_hostname, NULL);
-      if(r->server->port && r->server->port != 443){
-        tmp_url = apr_pstrcat(r->pool, tmp_url, ":", apr_itoa(r->pool, r->server->port), NULL);
-      }
-      base_url = (char*)apr_pcalloc(r->pool, sizeof(char*) * 256);
-      apr_cpystrn(base_url, tmp_url, strlen(tmp_url)+1);
-      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "DB base URL not set, defaulting base_url to %s, %s, %s, %s",
-        base_url, path_end, base_path, r->uri);
-    }
-    else{
-      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "DB base URL set to %s. Setting base_url to %s", conf->url_, base_url);
-      apr_cpystrn(base_url, conf->url_, strlen(conf->url_)+1);
-      base_url = apr_pstrcat(r->pool, base_url, main_path, main_path, NULL);
-    }
-    
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Request: %s", r->the_request);
-    
-    // Now delegate to either job_handler, hist_handler or node_handler
-    
-    return request_handler(r, uri_len, table_num);
-}
-
 static int request_handler(request_rec *r, int uri_len, int table_num) {
 
     int ok = OK;
@@ -1321,7 +1237,7 @@ static int request_handler(request_rec *r, int uri_len, int table_num) {
      */
     else if(r->method_number == M_PUT){
       char* tmpstr = (char*)apr_pcalloc(r->pool, sizeof(char*) * 256);
-      apr_cpystrn(tmpstr, strstr(r->uri, JOB_DIR), jobdir_len + 1);
+      apr_cpystrn(tmpstr, strstr(r->uri, JOB_DIR), job_dir_len + 1);
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "PUT %s", r->uri);
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Check: %s <-> %s", tmpstr, JOB_DIR);
       if(strcmp(JOB_DIR, tmpstr) == 0) {
@@ -1348,6 +1264,92 @@ static int request_handler(request_rec *r, int uri_len, int table_num) {
     free(fields_str);*/
 
     return ok;
+}
+
+static int gridfactory_db_handler(request_rec *r) {
+    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "entering gridfactory_db_handler");
+
+    config_rec* conf;
+    int uri_len = 0;
+    if (r->uri != NULL) uri_len = strlen(r->uri);
+    char* base_path;
+    char* tmp_url;
+    char* path_end;
+    // This is either /jobs/ /history/ or /nodes/
+    char* main_path;
+    // This is set to 1, 2 or 3 in each of the above cases
+    int table_num = 0;
+
+    if (r->per_dir_config == NULL) {
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "directory for mod_gridfactory is null. Maybe your config is missing a Directory directive.");
+      return DECLINED;      
+    }    
+    conf = (config_rec*)ap_get_module_config(r->per_dir_config, &gridfactory_module);
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "handler %s", r->handler);
+
+    if (!r->handler || strcmp(r->handler, "gridfactory"))
+      return DECLINED;
+    
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "URI: %s", r->uri);
+
+    base_path = (char*)apr_pcalloc(r->pool, sizeof(char*) * 256);
+    main_path = (char*)apr_pcalloc(r->pool, sizeof(char*) * 256);
+    apr_cpystrn(base_path, r->uri, uri_len + 1);
+    path_end = strstr(base_path, JOB_DIR);
+    if(path_end != NULL){
+      table_num = JOB_TABLE_NUM;
+      apr_cpystrn(main_path, JOB_DIR, strlen(JOB_DIR)+1);
+      apr_cpystrn(base_path, base_path, uri_len - strlen(path_end) + 1);
+      tmp_url = apr_pstrcat(r->pool, tmp_url, base_path, JOB_DIR, NULL);
+    }
+    if(path_end == NULL){
+      path_end = strstr(base_path, HIST_DIR);
+      if(path_end != NULL){
+        table_num = HIST_TABLE_NUM;
+        apr_cpystrn(main_path, HIST_DIR, strlen(HIST_DIR)+1);
+        apr_cpystrn(base_path, base_path, uri_len - strlen(path_end) + 1);
+        tmp_url = apr_pstrcat(r->pool, tmp_url, base_path, HIST_DIR, NULL);
+      }
+    }
+    if(path_end == NULL){
+      path_end = strstr(base_path, NODE_DIR);
+      if(path_end != NULL){
+        table_num = NODE_TABLE_NUM;
+        apr_cpystrn(main_path, NODE_DIR, strlen(NODE_DIR)+1);
+        apr_cpystrn(base_path, base_path , uri_len - strlen(path_end) + 1);
+        tmp_url = apr_pstrcat(r->pool, tmp_url, base_path, NODE_DIR, NULL);
+      }
+    }
+    /**
+     * If DBBaseURL was not set in the preferences, default to
+     * https://this.server/[base]
+     * where  [base] is what comes before either /jobs/ /history/ or /nodes/ in
+     * request URI. Typically
+     * https://this.server/db/
+     * With this, base_url will be set to one of
+     * https://this.server/db/jobs/, https://this.server/db/history/, https://this.server/db/nodes/ 
+     */
+    if(conf->url_ == NULL || strcmp(conf->url_, "") == 0){
+      tmp_url = apr_pstrcat(r->pool, "https://", r->server->server_hostname, NULL);
+      if(r->server->port && r->server->port != 443){
+        tmp_url = apr_pstrcat(r->pool, tmp_url, ":", apr_itoa(r->pool, r->server->port), NULL);
+      }
+      base_url = (char*)apr_pcalloc(r->pool, sizeof(char*) * 256);
+      apr_cpystrn(base_url, tmp_url, strlen(tmp_url)+1);
+      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "DB base URL not set, defaulting base_url to %s, %s, %s, %s",
+        base_url, path_end, base_path, r->uri);
+    }
+    else{
+      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "DB base URL set to %s. Setting base_url to %s", conf->url_, base_url);
+      apr_cpystrn(base_url, conf->url_, strlen(conf->url_)+1);
+      base_url = apr_pstrcat(r->pool, base_url, main_path, main_path, NULL);
+    }
+    
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Request: %s", r->the_request);
+    
+    // Now delegate to either job_handler, hist_handler or node_handler
+    
+    return request_handler(r, uri_len, table_num);
 }
 
 static void register_hooks(apr_pool_t *p)
