@@ -1077,7 +1077,7 @@ int update_job_rec(request_rec *r, char* uuid) {
   if(status_only != 1 && status_only != 2){
     db_result ret = {0, "", ""};
     apr_cpystrn(query, JOB_REC_SELECT_Q, strlen(JOB_REC_SELECT_Q)+1);
-    get_job_rec(r, uuid, &ret, query);
+    get_rec(r, uuid, &ret, JOB_TABLE_NUM);
     if(ret.status && strstr(READY, ret.status) != NULL){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
          "For %s jobs, only changing csStatus and providerInfo is allowed. %s --> %s",
