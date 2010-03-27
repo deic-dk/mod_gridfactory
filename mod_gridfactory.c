@@ -305,15 +305,28 @@ typedef struct {
     char* status;
 } db_result;
 
-int set_pub_fields(request_rec *r, char* pub_fields_str, char** pub_fields){
+int set_pub_fields(request_rec *r, char* pub_fields_str, char** pub_fields, int table_num){
 
   char* field;
   const char* delim = "\t";
   char* last;
   int i = 0;
   
+  switch(table_num){
+    case JOB_TABLE_NUM: apr_cpystrn(pub_fields_str, JOB_PUB_FIELDS_STR, strlen(JOB_PUB_FIELDS_STR)+1);
+         break;
+    case HIST_TABLE_NUM: apr_cpystrn(pub_fields_str, JOB_PUB_FIELDS_STR, strlen(JOB_PUB_FIELDS_STR)+1);
+         break;
+    case NODE_TABLE_NUM: apr_cpystrn(pub_fields_str, NODE_PUB_FIELDS_STR, strlen(NODE_PUB_FIELDS_STR)+1);
+         break;
+    default: ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
+  }
+  
+  // Use a copy of pub_fields_str (it's modified by the tokenizing)
+  char* tmp_pub_fields_str = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
+  apr_cpystrn(tmp_pub_fields_str, pub_fields_str, strlen(pub_fields_str)+1);
   /* Split the fields on " " */
-  for(field = apr_strtok(pub_fields_str, delim, &last); field != NULL;
+  for(field = apr_strtok(tmp_pub_fields_str, delim, &last); field != NULL;
       field = apr_strtok(NULL, delim, &last)){
     pub_fields[i] = malloc(MAX_F_SIZE * sizeof(char));
     if(pub_fields[i] == NULL){
@@ -432,19 +445,18 @@ char* recs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
 
   if(priv){
     recs = pub_fields_str;
-
   }
   else{
     recs = fields_str;
   }
   
   int rownum = 1;
-  while(rownum<=numrows){
+  while(rownum <= numrows){
     row = NULL;
     rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
-    if (rv != 0) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
-        return NULL;
+    if(rv != 0){
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
+      return NULL;
     }
     recs = apr_pstrcat(r->pool, recs, "\n", NULL);
     for (i = 0 ; i < cols ; i++) {
@@ -498,8 +510,11 @@ char* recs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
   
   switch(table_num){
     case JOB_TABLE_NUM: snprintf(rec_name, strlen(job_name)+1, job_name);
+         break;
     case HIST_TABLE_NUM: snprintf(rec_name, strlen(hist_name)+1, hist_name);
+         break;
     case NODE_TABLE_NUM: snprintf(rec_name, strlen(node_name)+1, node_name);
+         break;
     default: ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
   }
 
@@ -565,9 +580,12 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
     //apr_cpystrn(query, JOB_RECS_SELECT_Q, strlen(JOB_RECS_SELECT_Q)+1);
     switch(table_num){
       case JOB_TABLE_NUM: snprintf(query, strlen(JOB_RECS_SELECT_Q)+1, JOB_RECS_SELECT_Q);
+           break;
       case HIST_TABLE_NUM: snprintf(query, strlen(HIST_RECS_SELECT_Q)+1, HIST_RECS_SELECT_Q);
+           break;
       case NODE_TABLE_NUM: snprintf(query, strlen(NODE_RECS_SELECT_Q)+1,NODE_RECS_SELECT_Q);
-      default: ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
+           break;
+      default: ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s --> %i", r->uri, table_num);
     }
 
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Query0: %s", query);
@@ -645,7 +663,7 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
 
     // format result
     if(ret->format == 0){
-      if(priv && set_pub_fields(r, pub_fields_str, pub_fields) < 0){
+      if(set_pub_fields(r, pub_fields_str, pub_fields, table_num) < 0 && priv){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to set public fields.");
         return NULL;
       }
@@ -687,12 +705,15 @@ void get_rec_ps(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
       case JOB_TABLE_NUM:
         snprintf(query, strlen(JOB_REC_SELECT_Q)+1, JOB_REC_SELECT_Q);
         statement = apr_hash_get(dbd->prepared, LABEL, APR_HASH_KEY_STRING);
+        break;
       case HIST_TABLE_NUM:
         snprintf(query, strlen(HIST_REC_SELECT_Q)+1, HIST_REC_SELECT_Q);
         statement = apr_hash_get(dbd->prepared, LABEL4, APR_HASH_KEY_STRING);
+        break;
       case NODE_TABLE_NUM:
         snprintf(query, strlen(NODE_REC_SELECT_Q)+1, NODE_REC_SELECT_Q);
         statement = apr_hash_get(dbd->prepared, LABEL5, APR_HASH_KEY_STRING);
+        break;
       default: ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
     }
 
@@ -821,8 +842,11 @@ void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
     //apr_cpystrn(query, JOB_REC_SELECT_Q, strlen(JOB_REC_SELECT_Q)+1);
     switch(table_num){
       case JOB_TABLE_NUM: snprintf(query, strlen(JOB_REC_SELECT_Q)+1, JOB_REC_SELECT_Q);
+           break;
       case HIST_TABLE_NUM: snprintf(query, strlen(HIST_REC_SELECT_Q)+1, HIST_REC_SELECT_Q);
+           break;
       case NODE_TABLE_NUM: snprintf(query, strlen(NODE_REC_SELECT_Q)+1, NODE_REC_SELECT_Q);
+           break;
       default: ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
     }
 
