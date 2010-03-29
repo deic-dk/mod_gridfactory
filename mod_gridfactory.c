@@ -340,12 +340,8 @@ int set_pub_fields(request_rec *r, char* pub_fields_str, char** pub_fields, int 
   return 0;
 }
 
-int set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str, char** fields){
+char** set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str){
   
-    if (strcmp(fields_str, "") != 0) {
-      return 0;
-    }
-    
     apr_status_t rv;
     const char* ret = "";
     // Hmm, does not work. Memory gets overwritten...
@@ -353,7 +349,7 @@ int set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str, char** fields){
     fields_str = (char*) malloc(MAX_T_F_SIZE * sizeof(char*));
     if(fields_str == NULL){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Out of memory.");
-      return -1;
+      return NULL;
     }
       
     apr_dbd_results_t *res = NULL;
@@ -363,23 +359,25 @@ int set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str, char** fields){
     int i = 0;
     
     if(apr_dbd_select(dbd->driver, r->pool, dbd->handle, &res, JOB_REC_SHOW_F_Q, 1) != 0){
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error");
-        return -1;
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error in set_fields.");
+        return NULL;
     }
     
     int cols = apr_dbd_num_tuples(dbd->driver, res);
     
-    fields = malloc(cols * sizeof(char*));
+    //char** fields = malloc(cols * sizeof(char*));
+    char** fields = (char**)apr_pcalloc(r->pool, cols * sizeof(char*));
+    
     if(fields == NULL){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
         "Out of memory while allocating %i columns.", cols);
-      return -1;
+      return NULL;
     }
     for(i = 0; i < cols; i++){
     fields[i] = malloc(MAX_F_SIZE * sizeof(char));
       if(fields[i] == NULL){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Out of memory.");
-        return -1;
+        return NULL;
       }
     }
     
@@ -390,15 +388,15 @@ int set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str, char** fields){
         rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
         if(rv != 0){
             ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
-            return -1;
+            return NULL;
         }
         val = (char*) apr_dbd_get_entry(dbd->driver, row, 0);
-        ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "field --> %s", val);
         if(firstrow != 0){
           ret = apr_pstrcat(r->pool, ret, "\t", NULL);
         }
         ret = apr_pstrcat(r->pool, ret, val, NULL);
         apr_cpystrn(fields[i], val, strlen(val)+1);
+        ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "field --> %s", fields[i]);
         if(apr_strnatcmp(val, ID_COL) == 0){
           id_col_nr = i;
         }
@@ -415,9 +413,9 @@ int set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str, char** fields){
     
     apr_cpystrn(fields_str, ret, strlen(ret)+1);
     
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Found fields: %s", fields_str);
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Found fields: %s; first field: %s", fields_str, fields[0]);
     
-    return 0;
+    return fields;
 }
 
 char* constructURL(request_rec* r, char* job_id){
@@ -459,8 +457,8 @@ char* recs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
       return NULL;
     }
     recs = apr_pstrcat(r->pool, recs, "\n", NULL);
-    for (i = 0 ; i < cols ; i++) {
-
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "retrieved row %i, cols %i", rownum, cols);
+    for(i = 0 ; i < cols ; i++){
       // To check if a field is a member of pub_fields, just see if pub_fields_str contains
       // " field ".
       checkStr = strstr(pub_fields_str, fields[i]);
@@ -474,7 +472,6 @@ char* recs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
         )){
         continue;
       }  
-      
       val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
       ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "--> %s", val);
       recs = apr_pstrcat(r->pool, recs, val, NULL);
@@ -573,7 +570,7 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
     ret->format = 0;
     char* query = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
     char* fields_str = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
-    char** fields = (char**)apr_pcalloc(r->pool, 256 * sizeof(char**));
+    char** fields;
     char* pub_fields_str = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
     char** pub_fields = (char**)apr_pcalloc(r->pool, 256 * sizeof(char**));
     
@@ -657,7 +654,7 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
     }
     
     if(apr_dbd_select(dbd->driver, r->pool, dbd->handle, &res, query, 1) != 0){
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error");
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error in get_recs.");
       return NULL;
     }
 
@@ -667,7 +664,7 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to set public fields.");
         return NULL;
       }
-      if(set_fields(r, dbd, fields_str, fields) < 0){
+      if((fields=set_fields(r, dbd, fields_str))==NULL){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to set fields.");
         return NULL;
       }
@@ -689,9 +686,9 @@ void get_rec_s(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
    char* uuid, char* query){
   char* my_query = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
   snprintf(my_query, strlen(query)+strlen(uuid)-1, query, uuid);
-  ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Query: %s", query);
-  if(apr_dbd_select(dbd->driver, r->pool, dbd->handle, &res, query, 1) != 0){
-    ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error");
+  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Query: %s", my_query);
+  if(apr_dbd_select(dbd->driver, r->pool, dbd->handle, &res, my_query, 1) != 0){
+    ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error in get_rec_s.");
   }
 }
 
@@ -837,16 +834,20 @@ void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
     ret->format = 0;
     char* query = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
     char* fields_str = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
-    char** fields = (char**)apr_pcalloc(r->pool, 256 * sizeof(char**));
+    char** fields;
     
-    //apr_cpystrn(query, JOB_REC_SELECT_Q, strlen(JOB_REC_SELECT_Q)+1);
     switch(table_num){
-      case JOB_TABLE_NUM: snprintf(query, strlen(JOB_REC_SELECT_Q)+1, JOB_REC_SELECT_Q);
-           break;
-      case HIST_TABLE_NUM: snprintf(query, strlen(HIST_REC_SELECT_Q)+1, HIST_REC_SELECT_Q);
-           break;
-      case NODE_TABLE_NUM: snprintf(query, strlen(NODE_REC_SELECT_Q)+1, NODE_REC_SELECT_Q);
-           break;
+      case JOB_TABLE_NUM:
+        // Don't use snprintf here - it messes up with non-letters...
+        //snprintf(query, strlen(JOB_REC_SELECT_Q)+1, JOB_REC_SELECT_Q);
+        apr_cpystrn(query, JOB_REC_SELECT_Q, strlen(JOB_REC_SELECT_Q)+1);
+        break;
+      case HIST_TABLE_NUM:
+        apr_cpystrn(query, HIST_REC_SELECT_Q, strlen(HIST_REC_SELECT_Q)+1);
+        break;
+      case NODE_TABLE_NUM:
+        apr_cpystrn(query, NODE_REC_SELECT_Q, strlen(NODE_REC_SELECT_Q)+1);
+        break;
       default: ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
     }
 
@@ -859,7 +860,7 @@ void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
         return;
     }
     
-    if(set_fields(r, dbd, fields_str, fields) < 0){
+    if((fields=set_fields(r, dbd, fields_str))==NULL){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to get fields.");
       return;
     }
@@ -1162,7 +1163,7 @@ int update_job_rec(request_rec *r, char* uuid) {
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Query: %s", query);
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Provider: %s", provider);
     if(apr_dbd_query(dbd->driver, dbd->handle, &nrows, query) != 0){
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error");
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error in update_job_rec");
       return HTTP_INTERNAL_SERVER_ERROR;
     }    
   }
@@ -1326,7 +1327,7 @@ static int gridfactory_db_handler(request_rec *r) {
       apr_cpystrn(base_path, base_path, uri_len - strlen(path_end) + 1);
       tmp_url = apr_pstrcat(r->pool, tmp_url, base_path, JOB_DIR, NULL);
     }
-    if(path_end == NULL){
+    if(table_num == 0){
       path_end = strstr(base_path, HIST_DIR);
       if(path_end != NULL){
         table_num = HIST_TABLE_NUM;
@@ -1335,7 +1336,7 @@ static int gridfactory_db_handler(request_rec *r) {
         tmp_url = apr_pstrcat(r->pool, tmp_url, base_path, HIST_DIR, NULL);
       }
     }
-    if(path_end == NULL){
+    if(table_num == 0){
       path_end = strstr(base_path, NODE_DIR);
       if(path_end != NULL){
         table_num = NODE_TABLE_NUM;
@@ -1359,14 +1360,14 @@ static int gridfactory_db_handler(request_rec *r) {
         tmp_url = apr_pstrcat(r->pool, tmp_url, ":", apr_itoa(r->pool, r->server->port), NULL);
       }
       base_url = (char*)apr_pcalloc(r->pool, sizeof(char*) * 256);
-      apr_cpystrn(base_url, tmp_url, strlen(tmp_url)+1);
-      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "DB base URL not set, defaulting base_url to %s, %s, %s, %s",
-        base_url, path_end, base_path, r->uri);
+      base_url = apr_pstrcat(r->pool, tmp_url, base_path, main_path, NULL);
+      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "DB base URL not set, defaulting base_url to %s, %s, %s",
+        base_url, base_path, r->uri);
     }
     else{
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "DB base URL set to %s. Setting base_url to %s", conf->url_, base_url);
       apr_cpystrn(base_url, conf->url_, strlen(conf->url_)+1);
-      base_url = apr_pstrcat(r->pool, base_url, main_path, main_path, NULL);
+      base_url = apr_pstrcat(r->pool, base_url, main_path, NULL);
     }
     
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Request: %s", r->the_request);
