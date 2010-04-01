@@ -184,10 +184,10 @@ static char* TEXT_FORMAT_STR = "text";
 static char* XML_FORMAT_STR = "xml";
 
 /* Public fields of the jobDefinition table. */
-static char* JOB_PUB_FIELDS_STR = "identifier\tname\tcsStatus\tuserInfo\tcreated\tlastModified\tgridTime\tmemory\topSys\truntimeEnvironments\tallowedVOs\tvirtualize\tdbUrl";
+static char* JOB_PUB_FIELDS_STR = "identifier\tname\tcsStatus\tuserInfo\tcreated\tlastModified\trunningTime\tramMb\topSys\truntimeEnvironments\tallowedVOs\tvirtualize\tdbUrl";
 
 /* Public fields of the nodeInformation table. */
-static char* NODE_PUB_FIELDS_STR = "identifier\thost\tmaxJobs\tallowedVOs\tvirtualize\thypervisors\tmaxMBPerJob\tprivileges\tinPorts\toutPorts\tproviderInfo\tcreated\tlastModified\tdbUrl";
+static char* NODE_PUB_FIELDS_STR = "identifier\thost\tmaxJobs\tallowedVOs\tvirtualize\thypervisors\tmaxMBPerJob\tproviderInfo\tcreated\tlastModified\tdbUrl";
 
 /* Base URL for the DB web service. */
 char* base_url;
