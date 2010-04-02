@@ -113,6 +113,12 @@ static const char* DBURL_COL = "dbUrl";
 /* SQL query to get list of fields. */
 static const char* JOB_REC_SHOW_F_Q = "SHOW fields FROM `jobDefinition`";
 
+/* SQL query to get list of fields. */
+static const char* HIST_REC_SHOW_F_Q = "SHOW fields FROM `jobHistory`";
+
+/* SQL query to get list of fields. */
+static const char* NODE_REC_SHOW_F_Q = "SHOW fields FROM `nodeInformation`";
+
 /* SQL query to get all job definition records. */
 static const char* JOB_RECS_SELECT_Q = "SELECT * FROM `jobDefinition`";
 
@@ -340,17 +346,17 @@ int set_pub_fields(request_rec *r, char* pub_fields_str, char** pub_fields, int 
   return 0;
 }
 
-char** set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str){
+char** set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str, char* query){
   
     apr_status_t rv;
     const char* ret = "";
     // Hmm, does not work. Memory gets overwritten...
     //fields_str = apr_pcalloc(r->pool, MAX_T_F_SIZE * sizeof(char));
-    fields_str = (char*) malloc(MAX_T_F_SIZE * sizeof(char*));
+    /*fields_str = (char*) malloc(MAX_T_F_SIZE * sizeof(char*));
     if(fields_str == NULL){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Out of memory.");
       return NULL;
-    }
+    }*/
       
     apr_dbd_results_t *res = NULL;
     apr_dbd_row_t* row;
@@ -358,7 +364,7 @@ char** set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str){
     int firstrow = 0;
     int i = 0;
     
-    if(apr_dbd_select(dbd->driver, r->pool, dbd->handle, &res, JOB_REC_SHOW_F_Q, 1) != 0){
+    if(apr_dbd_select(dbd->driver, r->pool, dbd->handle, &res, query, 1) != 0){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error in set_fields.");
         return NULL;
     }
@@ -572,15 +578,22 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
     char* fields_str = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
     char** fields;
     char* pub_fields_str = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
+    char* fields_query = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
     char** pub_fields = (char**)apr_pcalloc(r->pool, 256 * sizeof(char**));
     
     //apr_cpystrn(query, JOB_RECS_SELECT_Q, strlen(JOB_RECS_SELECT_Q)+1);
     switch(table_num){
-      case JOB_TABLE_NUM: snprintf(query, strlen(JOB_RECS_SELECT_Q)+1, JOB_RECS_SELECT_Q);
+      case JOB_TABLE_NUM:
+           snprintf(query, strlen(JOB_RECS_SELECT_Q)+1, JOB_RECS_SELECT_Q);
+           fields_query = JOB_REC_SHOW_F_Q;
            break;
-      case HIST_TABLE_NUM: snprintf(query, strlen(HIST_RECS_SELECT_Q)+1, HIST_RECS_SELECT_Q);
+      case HIST_TABLE_NUM:
+           snprintf(query, strlen(HIST_RECS_SELECT_Q)+1, HIST_RECS_SELECT_Q);
+           fields_query = HIST_REC_SHOW_F_Q;
            break;
-      case NODE_TABLE_NUM: snprintf(query, strlen(NODE_RECS_SELECT_Q)+1,NODE_RECS_SELECT_Q);
+      case NODE_TABLE_NUM:
+           snprintf(query, strlen(NODE_RECS_SELECT_Q)+1,NODE_RECS_SELECT_Q);
+           fields_query = NODE_REC_SHOW_F_Q;
            break;
       default: ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s --> %i", r->uri, table_num);
     }
@@ -664,7 +677,7 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to set public fields.");
         return NULL;
       }
-      if((fields=set_fields(r, dbd, fields_str))==NULL){
+      if((fields=set_fields(r, dbd, fields_str, fields_query))==NULL){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to set fields.");
         return NULL;
       }
@@ -834,6 +847,7 @@ void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
     ret->format = 0;
     char* query = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
     char* fields_str = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
+    char* fields_query = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
     char** fields;
     
     switch(table_num){
@@ -841,12 +855,15 @@ void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
         // Don't use snprintf here - it messes up with non-letters...
         //snprintf(query, strlen(JOB_REC_SELECT_Q)+1, JOB_REC_SELECT_Q);
         apr_cpystrn(query, JOB_REC_SELECT_Q, strlen(JOB_REC_SELECT_Q)+1);
+        fields_query = JOB_REC_SHOW_F_Q;
         break;
       case HIST_TABLE_NUM:
         apr_cpystrn(query, HIST_REC_SELECT_Q, strlen(HIST_REC_SELECT_Q)+1);
+        fields_query = HIST_REC_SHOW_F_Q;
         break;
       case NODE_TABLE_NUM:
         apr_cpystrn(query, NODE_REC_SELECT_Q, strlen(NODE_REC_SELECT_Q)+1);
+        fields_query = NODE_REC_SHOW_F_Q;
         break;
       default: ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
     }
@@ -860,7 +877,7 @@ void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
         return;
     }
     
-    if((fields=set_fields(r, dbd, fields_str))==NULL){
+    if((fields=set_fields(r, dbd, fields_str, fields_query))==NULL){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to get fields.");
       return;
     }
