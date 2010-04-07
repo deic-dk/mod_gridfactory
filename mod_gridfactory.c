@@ -70,6 +70,10 @@ module AP_MODULE_DECLARE_DATA authn_dbd_module;
 #define  HIST_TABLE_NUM 2
 #define  NODE_TABLE_NUM 3
 
+/* Apache environment variable. This is used to get the DN used for authorizing
+ * node updates. */
+static const char* CLIENT_S_DN_STRING = "SSL_CLIENT_S_DN";
+
 /* The sub-directory containing the job information. */
 static const char* JOB_DIR = "/jobs/";
 /* The sub-directory containing the job history. */
@@ -102,7 +106,6 @@ static const char* LASTMODIFIED_COL = "lastModified";
 
 /* Name of the providerInfo column. */
 static const char* PROVIDERINFO_COL = "providerInfo";
-
 
 /* Column holding the status. */
 static int status_col_nr;
@@ -144,7 +147,7 @@ static const char* JOB_REC_SELECT_Q = "SELECT * FROM `jobDefinition` WHERE ident
 static const char* HIST_REC_SELECT_Q = "SELECT * FROM `jobHistory` WHERE identifier LIKE '%/%s'";
 
 /* Query to get node record. */
-static const char* NODE_REC_SELECT_Q = "SELECT * FROM `nodeInformation` WHERE identifier LIKE '%/%s'";
+static const char* NODE_REC_SELECT_Q = "SELECT * FROM `nodeInformation` WHERE identifier = '%s'";
 
 /* Prepared statement string to update job record. */
 static const char* JOB_REC_UPDATE_PS_1 = "UPDATE `jobDefinition` SET lastModified = NOW() WHERE identifier LIKE ?";
@@ -157,6 +160,12 @@ static const char* JOB_REC_UPDATE_PS_3 = "UPDATE `jobDefinition` SET lastModifie
 
 /* Query to update job record. */
 static const char* JOB_REC_UPDATE_Q = "UPDATE `jobDefinition` SET lastModified = NOW()";
+
+/* Query to update node record. */
+static const char* NODE_REC_UPDATE_Q = "UPDATE `nodeInformation` SET lastModified = NOW()";
+
+/* Query to create node record. */
+static const char* NODE_REC_INSERT_Q = "INSERT INTO nodeInformation SET created = NOW(), lastModified = NOW()";
 
 /* Optional function - look it up once in post_config. */
 static ap_dbd_t* (*dbd_acquire_fn)(request_rec*) = NULL;
@@ -305,10 +314,13 @@ unsigned long countchr(const char *str, const char *ch)
 typedef struct {
     int format;
     char* res;
-    /* Used only by update_job_rec, to check if a job is
+    /* Used only by update_rec, to check if a job is
      * "ready" before allowing writing. If a job is "ready"
      * only writing the status (csStatus) is allowed. */
     char* status;
+    /* Used only by update_rec to check if a node record
+     * was created by the user trying to modify it. */
+    char* providerInfo;
 } db_result;
 
 int set_pub_fields(request_rec *r, char* pub_fields_str, char** pub_fields, int table_num){
@@ -319,13 +331,17 @@ int set_pub_fields(request_rec *r, char* pub_fields_str, char** pub_fields, int 
   int i = 0;
   
   switch(table_num){
-    case JOB_TABLE_NUM: apr_cpystrn(pub_fields_str, JOB_PUB_FIELDS_STR, strlen(JOB_PUB_FIELDS_STR)+1);
-         break;
-    case HIST_TABLE_NUM: apr_cpystrn(pub_fields_str, JOB_PUB_FIELDS_STR, strlen(JOB_PUB_FIELDS_STR)+1);
-         break;
-    case NODE_TABLE_NUM: apr_cpystrn(pub_fields_str, NODE_PUB_FIELDS_STR, strlen(NODE_PUB_FIELDS_STR)+1);
-         break;
-    default: ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
+    case JOB_TABLE_NUM:
+      apr_cpystrn(pub_fields_str, JOB_PUB_FIELDS_STR, strlen(JOB_PUB_FIELDS_STR)+1);
+      break;
+    case HIST_TABLE_NUM:
+      apr_cpystrn(pub_fields_str, JOB_PUB_FIELDS_STR, strlen(JOB_PUB_FIELDS_STR)+1);
+      break;
+    case NODE_TABLE_NUM:
+      apr_cpystrn(pub_fields_str, NODE_PUB_FIELDS_STR, strlen(NODE_PUB_FIELDS_STR)+1);
+      break;
+    default:
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
   }
   
   // Use a copy of pub_fields_str (it's modified by the tokenizing)
@@ -425,7 +441,14 @@ char** set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str, char* query){
 }
 
 char* constructURL(request_rec* r, char* job_id){
-  char* uuid = memrchr(job_id, '/', strlen(job_id) - 1) + 1;
+  ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Constructing URL from %s", job_id);
+  char* uuid = memrchr(job_id, '/', strlen(job_id) - 1);
+  if(uuid != NULL){
+  	uuid = uuid + 1;
+  }
+  else{
+  	uuid = job_id;
+  }
   char* id = apr_pstrcat(r->pool, base_url, uuid, NULL);
   ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "DB URL: %s + %s -> %s", base_url, uuid, id);
   return id;
@@ -512,13 +535,17 @@ char* recs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
   char* node_name = "nodes";
   
   switch(table_num){
-    case JOB_TABLE_NUM: snprintf(rec_name, strlen(job_name)+1, job_name);
-         break;
-    case HIST_TABLE_NUM: snprintf(rec_name, strlen(hist_name)+1, hist_name);
-         break;
-    case NODE_TABLE_NUM: snprintf(rec_name, strlen(node_name)+1, node_name);
-         break;
-    default: ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
+    case JOB_TABLE_NUM:
+      snprintf(rec_name, strlen(job_name)+1, job_name);
+      break;
+    case HIST_TABLE_NUM:
+      snprintf(rec_name, strlen(hist_name)+1, hist_name);
+       break;
+    case NODE_TABLE_NUM:
+      snprintf(rec_name, strlen(node_name)+1, node_name);
+       break;
+    default:
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
   }
 
   recs = "<?xml version=\"1.0\"?>\n<";
@@ -584,18 +611,19 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
     //apr_cpystrn(query, JOB_RECS_SELECT_Q, strlen(JOB_RECS_SELECT_Q)+1);
     switch(table_num){
       case JOB_TABLE_NUM:
-           snprintf(query, strlen(JOB_RECS_SELECT_Q)+1, JOB_RECS_SELECT_Q);
-           fields_query = JOB_REC_SHOW_F_Q;
-           break;
+        snprintf(query, strlen(JOB_RECS_SELECT_Q)+1, JOB_RECS_SELECT_Q);
+        apr_cpystrn(fields_query, JOB_REC_SHOW_F_Q, strlen(JOB_REC_SHOW_F_Q)+1);
+        break;
       case HIST_TABLE_NUM:
-           snprintf(query, strlen(HIST_RECS_SELECT_Q)+1, HIST_RECS_SELECT_Q);
-           fields_query = HIST_REC_SHOW_F_Q;
-           break;
+        snprintf(query, strlen(HIST_RECS_SELECT_Q)+1, HIST_RECS_SELECT_Q);
+        apr_cpystrn(fields_query, HIST_REC_SHOW_F_Q, strlen(HIST_REC_SHOW_F_Q)+1);
+        break;
       case NODE_TABLE_NUM:
-           snprintf(query, strlen(NODE_RECS_SELECT_Q)+1,NODE_RECS_SELECT_Q);
-           fields_query = NODE_REC_SHOW_F_Q;
-           break;
-      default: ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s --> %i", r->uri, table_num);
+        snprintf(query, strlen(NODE_RECS_SELECT_Q)+1,NODE_RECS_SELECT_Q);
+        apr_cpystrn(fields_query, NODE_REC_SHOW_F_Q, strlen(NODE_REC_SHOW_F_Q)+1);
+        break;
+      default:
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s --> %i", r->uri, table_num);
     }
 
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Query0: %s", query);
@@ -706,25 +734,26 @@ void get_rec_s(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
 }
 
 void get_rec_ps(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
-   char* uuid, char* query, int table_num){
+   char* uuid, int table_num){
 
-    char* my_query = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
     apr_dbd_prepared_t* statement;
+    char* str;
 
     switch(table_num){
       case JOB_TABLE_NUM:
-        snprintf(query, strlen(JOB_REC_SELECT_Q)+1, JOB_REC_SELECT_Q);
         statement = apr_hash_get(dbd->prepared, LABEL, APR_HASH_KEY_STRING);
+        str = apr_pstrcat(r->pool, "%", uuid, NULL);
         break;
       case HIST_TABLE_NUM:
-        snprintf(query, strlen(HIST_REC_SELECT_Q)+1, HIST_REC_SELECT_Q);
         statement = apr_hash_get(dbd->prepared, LABEL4, APR_HASH_KEY_STRING);
+        str = apr_pstrcat(r->pool, "/%", uuid, NULL);
         break;
       case NODE_TABLE_NUM:
-        snprintf(query, strlen(NODE_REC_SELECT_Q)+1, NODE_REC_SELECT_Q);
         statement = apr_hash_get(dbd->prepared, LABEL5, APR_HASH_KEY_STRING);
+        str = apr_pstrcat(r->pool, "/%", uuid, NULL);
         break;
-      default: ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
+      default:
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
     }
 
     if(statement == NULL){
@@ -732,7 +761,6 @@ void get_rec_ps(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
                       "A prepared statement could not be found for getting job records.");
     }
     
-    char* str = apr_pstrcat(r->pool, "%/", uuid, NULL);
     if(apr_dbd_pvselect(dbd->driver, r->pool, dbd->handle, &res, statement,
                               0, str, NULL) != 0) {
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
@@ -773,6 +801,10 @@ void rec_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
         // Set res.status
         if(strcmp(fields[i], STATUS_COL) == 0 && val != NULL){
           ret->status = val;
+        }
+        // Set res.providerInfo
+        else if(strcmp(fields[i], PROVIDERINFO_COL) == 0 && val != NULL){
+          ret->providerInfo = val;
         }
       }
       firstrow = -1;
@@ -820,6 +852,10 @@ void rec_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
         if(strcmp(fields[i], STATUS_COL) == 0 && val != NULL){
           ret->status = val;
         }
+        // Set res.providerInfo
+        else if(strcmp(fields[i], PROVIDERINFO_COL) == 0 && val != NULL){
+          ret->providerInfo = val;
+        }
       }
       firstrow = -1;
       rownum++;
@@ -855,17 +891,18 @@ void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
         // Don't use snprintf here - it messes up with non-letters...
         //snprintf(query, strlen(JOB_REC_SELECT_Q)+1, JOB_REC_SELECT_Q);
         apr_cpystrn(query, JOB_REC_SELECT_Q, strlen(JOB_REC_SELECT_Q)+1);
-        fields_query = JOB_REC_SHOW_F_Q;
+        apr_cpystrn(fields_query, JOB_REC_SHOW_F_Q, strlen(JOB_REC_SHOW_F_Q)+1);
         break;
       case HIST_TABLE_NUM:
         apr_cpystrn(query, HIST_REC_SELECT_Q, strlen(HIST_REC_SELECT_Q)+1);
-        fields_query = HIST_REC_SHOW_F_Q;
+        apr_cpystrn(fields_query, HIST_REC_SHOW_F_Q, strlen(HIST_REC_SHOW_F_Q)+1);
         break;
       case NODE_TABLE_NUM:
         apr_cpystrn(query, NODE_REC_SELECT_Q, strlen(NODE_REC_SELECT_Q)+1);
-        fields_query = NODE_REC_SHOW_F_Q;
+        apr_cpystrn(fields_query, NODE_REC_SHOW_F_Q, strlen(NODE_REC_SHOW_F_Q)+1);
         break;
-      default: ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
+      default:
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
     }
 
     apr_dbd_results_t* dbres = (apr_dbd_results_t*)apr_pcalloc(r->pool, 5120);  
@@ -890,7 +927,7 @@ void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
     }
     else{
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "PrepareStatements enabled, %s.", conf->ps_);
-      get_rec_ps(r, dbd, dbres, uuid, query, table_num);
+      get_rec_ps(r, dbd, dbres, uuid, table_num);
     }
     
     if(dbres == NULL){
@@ -1068,7 +1105,21 @@ static int parse_input_from_put(request_rec* r, apr_hash_t **form){
   
 }
 
-int update_job_rec(request_rec *r, char* uuid) {
+char* mk_sql_key_values(request_rec *r, apr_hash_t *ht) {
+	char* tmp_query = "";
+  apr_hash_index_t *hi;
+  void *val;
+  const void *key;
+  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Adding key/value pairs to query %s", tmp_query);
+  for(hi = apr_hash_first(r->pool, ht); hi; hi = apr_hash_next(hi)){
+    apr_hash_this(hi, &key, NULL, &val);
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "%s --> %s", key, val);
+    tmp_query = apr_pstrcat(r->pool, tmp_query, ", ", key, " = '", val, "'", NULL);
+  }
+  return tmp_query;
+}
+
+int update_rec(request_rec *r, char* uuid, int table_num) {
   
   /* Read and parse the data. */
   apr_hash_t* put_data = NULL;
@@ -1078,18 +1129,32 @@ int update_job_rec(request_rec *r, char* uuid) {
      return status;
   }
   
-  /* Now update the database record. */
+  /* Determine the kind of update to be done. */
   apr_hash_index_t* index;
-  char* query = "";
+  char* update_query = "";
+  char* select_query = "";
+  db_result ret = {0, "", ""};
   const char* provider = NULL;
+  
+  switch(table_num){
+    case JOB_TABLE_NUM:
+         update_query = apr_pstrcat(r->pool, update_query, JOB_REC_UPDATE_Q, NULL);
+         break;
+    case NODE_TABLE_NUM:
+         update_query = apr_pstrcat(r->pool, update_query, NODE_REC_UPDATE_Q, NULL);
+         break;
+    default:
+         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
+         // Modifying history records is not allowed via this web service.
+         return DECLINED;
+  }
+
   int nrows;
   /* 0 -> no fields to be updated (except for lastModified),
      1 -> only csStatus or providerInfo to be updated,
      2 -> only csStatus and providerInfo to be updated,
      3 -> other than csStatus and providerInfo to be updated. */
   int status_only = 0;
-  
-  query = apr_pstrcat(r->pool, query, JOB_REC_UPDATE_Q, NULL);
   for(index = apr_hash_first(NULL, put_data);
      index; index = apr_hash_next(index)){
     const char *k;
@@ -1108,26 +1173,42 @@ int update_job_rec(request_rec *r, char* uuid) {
       status_only = 3;
     }
     if(apr_strnatcmp(k, LASTMODIFIED_COL) != 0){
-      query = apr_pstrcat(r->pool, query, ", ", ap_escape_html(r->pool, k), " = '",
+      update_query = apr_pstrcat(r->pool, update_query, ", ", ap_escape_html(r->pool, k), " = '",
                         ap_escape_html(r->pool, v), "'", NULL);
     }
   }
   
-  /* If someone is trying to update other fields than csStatus or
+  /* If someone is trying to update other jobDefintion fields than csStatus or
      changing only lastModified, check if the job status starts with 'ready';
      if it does, decline. */
-  if(status_only != 1 && status_only != 2){
-    db_result ret = {0, "", ""};
-    apr_cpystrn(query, JOB_REC_SELECT_Q, strlen(JOB_REC_SELECT_Q)+1);
-    get_rec(r, uuid, &ret, JOB_TABLE_NUM);
-    if(ret.status && strstr(READY, ret.status) != NULL){
+  if(table_num == JOB_TABLE_NUM && status_only != 1 && status_only != 2){
+    select_query = apr_pstrcat(r->pool, select_query, JOB_REC_SELECT_Q, NULL);
+    get_rec(r, uuid, &ret, table_num);
+    if(&ret != NULL && ret.status && strstr(READY, ret.status) != NULL){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
          "For %s jobs, only changing csStatus and providerInfo is allowed. %s --> %s",
-         ret.status, status_only, query);
+         ret.status, status_only, update_query);
       return DECLINED;
     }
   }
+  /* If someone is trying to update a nodeInformation record they did not create, decline. */
+  else if(table_num == NODE_TABLE_NUM){
+    select_query = apr_pstrcat(r->pool, select_query, NODE_REC_SELECT_Q, NULL);
+    get_rec(r, uuid, &ret, table_num);
+    if(&ret != NULL){
+    	// Get the client DN
+      request_rec* subreq = ap_sub_req_lookup_file("/dev/null", r, 0);
+      const char* client_dn = apr_table_get(subreq->subprocess_env, CLIENT_S_DN_STRING);
+      if(ret.providerInfo && strcmp(client_dn, ret.providerInfo) != 0){
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+           "An existing nodeInformation records can only be changed by its creator %s <-> %s",
+           client_dn, ret.providerInfo);
+        return DECLINED;
+      }
+    }
+  }
 
+  /* Now update the database record. */
   config_rec* conf = (config_rec*)ap_get_module_config(r->per_dir_config, &gridfactory_module);
   ap_dbd_t* dbd = dbd_acquire_fn(r);
   if(dbd == NULL){
@@ -1135,7 +1216,7 @@ int update_job_rec(request_rec *r, char* uuid) {
     return HTTP_INTERNAL_SERVER_ERROR;
   }
   
-  if(conf->ps_ != NULL && apr_strnatcasecmp(conf->ps_, "On") == 0 &&
+  if(table_num == JOB_TABLE_NUM && conf->ps_ != NULL && apr_strnatcasecmp(conf->ps_, "On") == 0 &&
      status_only == 0){
     /* If no key is present, use prepared statement. */
     apr_dbd_prepared_t* statement = apr_hash_get(dbd->prepared, LABEL1, APR_HASH_KEY_STRING);
@@ -1148,8 +1229,8 @@ int update_job_rec(request_rec *r, char* uuid) {
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error for %s.", str);
     }
   }
-  else if(conf->ps_ != NULL && apr_strnatcasecmp(conf->ps_, "On") == 0 &&
-          status_only == 1 && provider == NULL){
+  else if(table_num == JOB_TABLE_NUM && conf->ps_ != NULL &&
+          apr_strnatcasecmp(conf->ps_, "On") == 0 && status_only == 1 && provider == NULL){
     /* If only the csStatus key is present, use prepared statement. */
     apr_dbd_prepared_t* statement = apr_hash_get(dbd->prepared, LABEL2, APR_HASH_KEY_STRING);
     if(statement == NULL){
@@ -1161,7 +1242,8 @@ int update_job_rec(request_rec *r, char* uuid) {
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error for %i, %s", status, str);
     }
   }
-  else if(conf->ps_ != NULL && apr_strnatcasecmp(conf->ps_, "On") == 0 &&
+  else if(table_num == JOB_TABLE_NUM &&
+          conf->ps_ != NULL && apr_strnatcasecmp(conf->ps_, "On") == 0 &&
           (status_only == 1 || status_only == 2) && provider != NULL){
     /* If only the csStatus and providerInfo keys are present, use prepared statement. */
     apr_dbd_prepared_t* statement = apr_hash_get(dbd->prepared, LABEL3, APR_HASH_KEY_STRING);
@@ -1176,11 +1258,23 @@ int update_job_rec(request_rec *r, char* uuid) {
   }
   else{
     /* Otherwise, just use a normal query. */
-    query = apr_pstrcat(r->pool, query, " WHERE ", ID_COL, " LIKE '%/", uuid, "'", NULL);  
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Query: %s", query);
+    // If a nodeInformation record does not exist, create it.
+    if(table_num == NODE_TABLE_NUM){
+      if(strcmp(ret.res, "") == 0){
+        update_query = apr_pstrcat(r->pool, NODE_REC_INSERT_Q,
+           mk_sql_key_values(r, put_data), NULL);
+      }
+      else{
+        update_query = apr_pstrcat(r->pool, update_query, " WHERE ", ID_COL, " = '", uuid, "'", NULL);     
+      }
+    }
+    else{
+      update_query = apr_pstrcat(r->pool, update_query, " WHERE ", ID_COL, " LIKE '%/", uuid, "'", NULL);     
+    }
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Query: %s", update_query);
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Provider: %s", provider);
-    if(apr_dbd_query(dbd->driver, dbd->handle, &nrows, query) != 0){
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error in update_job_rec");
+    if(apr_dbd_query(dbd->driver, dbd->handle, &nrows, update_query) != 0){
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error in update_rec");
       return HTTP_INTERNAL_SERVER_ERROR;
     }    
   }
@@ -1278,20 +1372,30 @@ static int request_handler(request_rec *r, int uri_len, int table_num) {
      * https://localhost/db/jobs/3a86aacc-2d5f-11dd-80f2-c3b981785945
      */
     else if(r->method_number == M_PUT){
-      char* tmpstr = (char*)apr_pcalloc(r->pool, sizeof(char*) * 256);
-      apr_cpystrn(tmpstr, strstr(r->uri, JOB_DIR), job_dir_len + 1);
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "PUT %s", r->uri);
-      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Check: %s <-> %s", tmpstr, JOB_DIR);
-      if(strcmp(JOB_DIR, tmpstr) == 0) {
-        this_uuid = memrchr(r->uri, '/', uri_len);
-        apr_cpystrn(this_uuid, this_uuid+1 , uri_len - 1);
-        ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "this_uuid --> %s", this_uuid);
-        ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Content type: %s", r->content_type);
-        ok = update_job_rec(r, this_uuid);
+      char* tmpstr = (char*)apr_pcalloc(r->pool, sizeof(char*) * 256);
+      switch(table_num){
+        case JOB_TABLE_NUM:
+          apr_cpystrn(tmpstr, strstr(r->uri, JOB_DIR), job_dir_len + 1);
+          break;
+        case NODE_TABLE_NUM:
+          apr_cpystrn(tmpstr, strstr(r->uri, NODE_DIR), node_dir_len + 1);
+          break;
+        default:
+          ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
+          return DECLINED;
       }
-      else{
-        return DECLINED;
-      }
+      if(!(table_num == JOB_TABLE_NUM && strcmp(JOB_DIR, tmpstr) == 0 ||
+         table_num == HIST_TABLE_NUM && strcmp(HIST_DIR, tmpstr) == 0 ||
+         table_num == NODE_TABLE_NUM && strcmp(NODE_DIR, tmpstr) == 0)) {
+         	return DECLINED;
+      }     	
+      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Check: %s", tmpstr);
+      this_uuid = memrchr(r->uri, '/', uri_len);
+      apr_cpystrn(this_uuid, this_uuid+1 , uri_len - 1);
+      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "this_uuid --> %s", this_uuid);
+      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Content type: %s", r->content_type);
+      ok = update_rec(r, this_uuid, table_num);
     }
     else{
       r->allowed = (apr_int64_t) ((1 < M_GET) | (1 < M_PUT));
