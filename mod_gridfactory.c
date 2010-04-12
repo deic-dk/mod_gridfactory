@@ -380,8 +380,17 @@ char** set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str, char* query){
     int firstrow = 0;
     int i = 0;
     
-    if(apr_dbd_select(dbd->driver, r->pool, dbd->handle, &res, query, 1) != 0){
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error in set_fields.");
+    /*ap_dbd_t* dbd = (ap_dbd_t*)apr_pcalloc(r->pool, 256 * sizeof(ap_dbd_t*));
+    dbd = dbd_acquire_fn(r);
+    if(dbd == NULL){
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to acquire database connection.");
+        return NULL;
+    }*/
+
+    // This crashes with last argument 0 - i.e. only random access works
+    int ret_val = apr_dbd_select(dbd->driver, r->pool, dbd->handle, &res, query, 1);
+    if(ret_val != 0){
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error in set_fields, %i.", ret_val);
         return NULL;
     }
     
@@ -407,7 +416,9 @@ char** set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str, char* query){
     i = 0;
     while(i<cols){
         row = NULL;
-        rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
+        // We have to use last argument 1, ... NOT -1. Only random access works.
+        // Older libaprutil1 may start with 0 instead of 1...
+        rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, i+1);
         if(rv != 0){
             ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
             return NULL;
@@ -687,19 +698,14 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
       ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "GET with no args");
     }
 
-    /* Now do the query */
-    ap_dbd_t* dbd = dbd_acquire_fn(r);
+   /* If outputting text, set fields. Be ware, after select,
+      results MUST be traversed before another select can be done. */
+    ap_dbd_t* dbd = (ap_dbd_t*)apr_pcalloc(r->pool, 256 * sizeof(ap_dbd_t*));
+    dbd = dbd_acquire_fn(r);
     if(dbd == NULL){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to acquire database connection.");
         return NULL;
     }
-    
-    if(apr_dbd_select(dbd->driver, r->pool, dbd->handle, &res, query, 1) != 0){
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error in get_recs.");
-      return NULL;
-    }
-
-    // format result
     if(ret->format == 0){
       if(set_pub_fields(r, pub_fields_str, pub_fields, table_num) < 0 && priv){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to set public fields.");
@@ -709,6 +715,16 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to set fields.");
         return NULL;
       }
+    }
+
+    /* Now do the query */
+    if(apr_dbd_select(dbd->driver, r->pool, dbd->handle, &res, query, 0) != 0){
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error in get_recs.");
+      return NULL;
+    }
+
+    // format result
+    if(ret->format == 0){
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning text");
       ret->res = recs_text_format(r, dbd, res, priv, pub_fields_str, fields_str, fields);
     }
@@ -728,7 +744,7 @@ void get_rec_s(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
   char* my_query = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
   snprintf(my_query, strlen(query)+strlen(uuid)-1, query, uuid);
   ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Query: %s", my_query);
-  if(apr_dbd_select(dbd->driver, r->pool, dbd->handle, &res, my_query, 1) != 0){
+  if(apr_dbd_select(dbd->driver, r->pool, dbd->handle, &res, my_query, 0) != 0){
     ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error in get_rec_s.");
   }
 }
@@ -813,7 +829,7 @@ void rec_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
     }
     
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning record:");
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, rec);
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "%s", rec);
     
     ret->res = rec;
 }
@@ -864,7 +880,7 @@ void rec_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
     rec = apr_pstrcat(r->pool, rec, "\n</job> ", NULL);
     
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning record:");
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, rec);
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "%s", rec);
     
     ret->res = rec;
 
@@ -968,7 +984,7 @@ void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
     }
     
     ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Returning:");
-    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, ret->res);
+    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "%s",  ret->res);
     
     // Dont't do this. It causes segfaults...
     //apr_dbd_close(dbd->driver, dbd->handle);
@@ -1113,7 +1129,7 @@ char* mk_sql_key_values(request_rec *r, apr_hash_t *ht) {
   ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Adding key/value pairs to query %s", tmp_query);
   for(hi = apr_hash_first(r->pool, ht); hi; hi = apr_hash_next(hi)){
     apr_hash_this(hi, &key, NULL, &val);
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "%s --> %s", key, val);
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "%s --> %s", (char *) key, (char *) val);
     tmp_query = apr_pstrcat(r->pool, tmp_query, ", ", key, " = '", val, "'", NULL);
   }
   return tmp_query;
@@ -1186,7 +1202,7 @@ int update_rec(request_rec *r, char* uuid, int table_num) {
     get_rec(r, uuid, &ret, table_num);
     if(&ret != NULL && ret.status && strstr(READY, ret.status) != NULL){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-         "For %s jobs, only changing csStatus and providerInfo is allowed. %s --> %s",
+         "For %s jobs, only changing csStatus and providerInfo is allowed. %i --> %s",
          ret.status, status_only, update_query);
       return DECLINED;
     }
