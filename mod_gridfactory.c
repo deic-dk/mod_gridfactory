@@ -1435,7 +1435,7 @@ static int gridfactory_db_handler(request_rec *r) {
     int uri_len = 0;
     if (r->uri != NULL) uri_len = strlen(r->uri);
     char* base_path;
-    char* tmp_url;
+    char* tmp_url = "";
     char* path_end;
     // This is either /jobs/ /history/ or /nodes/
     char* main_path;
@@ -1491,20 +1491,20 @@ static int gridfactory_db_handler(request_rec *r) {
      * With this, base_url will be set to one of
      * https://this.server/db/jobs/, https://this.server/db/history/, https://this.server/db/nodes/ 
      */
+    base_url = (char*)apr_pcalloc(r->pool, sizeof(char*) * 256);
     if(conf->url_ == NULL || strcmp(conf->url_, "") == 0){
       tmp_url = apr_pstrcat(r->pool, "https://", r->server->server_hostname, NULL);
       if(r->server->port && r->server->port != 443){
         tmp_url = apr_pstrcat(r->pool, tmp_url, ":", apr_itoa(r->pool, r->server->port), NULL);
       }
-      base_url = (char*)apr_pcalloc(r->pool, sizeof(char*) * 256);
       base_url = apr_pstrcat(r->pool, tmp_url, base_path, main_path, NULL);
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "DB base URL not set, defaulting base_url to %s, %s, %s",
         base_url, base_path, r->uri);
     }
     else{
-      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "DB base URL set to %s. Setting base_url to %s", conf->url_, base_url);
       apr_cpystrn(base_url, conf->url_, strlen(conf->url_)+1);
       base_url = apr_pstrcat(r->pool, base_url, main_path, NULL);
+      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "DB base URL set to %s. Setting base_url to %s", conf->url_, base_url);
     }
     
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Request: %s", r->the_request);
