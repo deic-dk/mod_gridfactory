@@ -345,9 +345,9 @@ int set_pub_fields(request_rec *r, char* pub_fields_str, char** pub_fields, int 
   }
   
   // Use a copy of pub_fields_str (it's modified by the tokenizing)
-  char* tmp_pub_fields_str = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
+  char* tmp_pub_fields_str = (char*)apr_pcalloc(r->pool, 512 * sizeof(char*));
   apr_cpystrn(tmp_pub_fields_str, pub_fields_str, strlen(pub_fields_str)+1);
-  /* Split the fields on " " */
+  /* Split the fields on "\t" */
   for(field = apr_strtok(tmp_pub_fields_str, delim, &last); field != NULL;
       field = apr_strtok(NULL, delim, &last)){
     pub_fields[i] = malloc(MAX_F_SIZE * sizeof(char));
@@ -501,11 +501,13 @@ char* recs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "retrieved row %i, cols %i", rownum, cols);
     for(i = 0 ; i < cols ; i++){
       // To check if a field is a member of pub_fields, just see if pub_fields_str contains
-      // " field ".
+      // "\tfield\t".
       checkStr = strstr(pub_fields_str, fields[i]);
       fieldLen = strlen(fields[i]);
       checkStart = checkStr-1;
       checkEnd = checkStr+fieldLen;
+      ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Checking field %s",
+          fields[i]);
       if(priv && (
         checkStr == NULL ||
         *checkStart != 0 && *checkStart != ' ' && *checkStart != '\t' ||
@@ -613,9 +615,9 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
     int end = -1;
     ret->format = 0;
     char* query = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
-    char* fields_str = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
+    char* fields_str = (char*)apr_pcalloc(r->pool, 512 * sizeof(char*));
     char** fields;
-    char* pub_fields_str = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
+    char* pub_fields_str = (char*)apr_pcalloc(r->pool, 512 * sizeof(char*));
     char* fields_query = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
     char** pub_fields = (char**)apr_pcalloc(r->pool, 256 * sizeof(char**));
     
