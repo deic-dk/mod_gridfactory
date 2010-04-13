@@ -479,7 +479,8 @@ char* recs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
   int fieldLen;
   
   int cols = apr_dbd_num_cols(dbd->driver,res);
-  int numrows = apr_dbd_num_tuples(dbd->driver,res);
+  // Works only for synchronous selects (1 instead of 0)
+  //int numrows = apr_dbd_num_tuples(dbd->driver,res);
 
   if(priv){
     recs = pub_fields_str;
@@ -488,13 +489,13 @@ char* recs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
     recs = fields_str;
   }
   
-  int rownum = 1;
-  while(rownum <= numrows){
+  int rownum = 0;
+  //while(rownum <= numrows){
+  while(1){
     row = NULL;
     rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
     if(rv != 0){
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
-      return NULL;
+      break;
     }
     recs = apr_pstrcat(r->pool, recs, "\n", NULL);
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "retrieved row %i, cols %i", rownum, cols);
@@ -511,7 +512,7 @@ char* recs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
         *checkEnd != 0 && *checkEnd != ' ' && *checkEnd != '\t'
         )){
         continue;
-      }  
+      }
       val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
       ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "--> %s", val);
       recs = apr_pstrcat(r->pool, recs, val, NULL);
@@ -526,7 +527,7 @@ char* recs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
     rownum++;
   }
   
-  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning %i rows", numrows);
+  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning %i rows", rownum);
   ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, recs);
 
   return recs;
@@ -564,13 +565,12 @@ char* recs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
 
   int numrows = apr_dbd_num_tuples(dbd->driver,res);
   int cols = apr_dbd_num_cols(dbd->driver,res);
-  int rownum = 1;
-  while (rownum <= numrows){
+  int rownum = 0;
+  while(1){
     row = NULL;
     rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
     if (rv != 0) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
-        return NULL;
+        break;
     }
     recs = apr_pstrcat(r->pool, recs, "\n  <", rec_name, NULL);
     for (i = 0 ; i < cols ; i++) {
@@ -796,13 +796,12 @@ void rec_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
 
     int numrows = apr_dbd_num_tuples(dbd->driver,res);
     int cols = apr_dbd_num_cols(dbd->driver,res);
-    int rownum = 1;
-    while(rownum<=numrows){
+    int rownum = 0;
+    while(1){
       row = NULL;
       rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
       if(rv != 0){
-         ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
-          return;
+         break;
       }
       if(firstrow != 0){
         rec = apr_pstrcat(r->pool, rec, "\n\n", NULL);
@@ -846,13 +845,12 @@ void rec_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
     
     int numrows = apr_dbd_num_tuples(dbd->driver,res);
     int cols = apr_dbd_num_cols(dbd->driver,res);
-    int rownum = 1;
-    while(rownum<=numrows){
+    int rownum = 0;
+    while(1){
       row = NULL;
       rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
       if(rv != 0){
-         ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
-          return;
+         break;
       }
       if(firstrow != 0){
         rec = apr_pstrcat(r->pool, rec, "\n\n", NULL);
