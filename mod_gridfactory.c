@@ -508,10 +508,10 @@ char* recs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
       checkEnd = checkStr+fieldLen;
       ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Checking field %s",
           fields[i]);
-      if(priv && (
+      if(priv && checkStr != pub_fields_str && (
         checkStr == NULL ||
-        *checkStart != 0 && *checkStart != ' ' && *checkStart != '\t' ||
-        *checkEnd != 0 && *checkEnd != ' ' && *checkEnd != '\t'
+        checkStart != NULL && *checkStart != '\t' ||
+        checkEnd != NULL && *checkEnd != '\t'
         )){
         continue;
       }
