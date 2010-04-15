@@ -565,7 +565,7 @@ char* recs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
   recs = "<?xml version=\"1.0\"?>\n<";
   recs = apr_pstrcat(r->pool, recs, rec_name, "s>", NULL);
 
-  int numrows = apr_dbd_num_tuples(dbd->driver,res);
+  //int numrows = apr_dbd_num_tuples(dbd->driver,res);
   int cols = apr_dbd_num_cols(dbd->driver,res);
   int rownum = 0;
   while(1){
@@ -1351,9 +1351,8 @@ static int request_handler(request_rec *r, int uri_len, int table_num) {
         get_recs(r, &ret, PRIVATE, table_num);
       }    
       /* GET /db/jobs|history|nodes/UUID */
-      else if(table_num == JOB_TABLE_NUM && uri_len > job_dir_len ||
-              table_num == HIST_TABLE_NUM && uri_len > hist_dir_len ||
-              table_num == NODE_TABLE_NUM && uri_len > node_dir_len) {
+      else if((table_num == JOB_TABLE_NUM && uri_len > job_dir_len) ||
+              (table_num == NODE_TABLE_NUM && uri_len > node_dir_len)) {
         /* this_uuid = "UUID" */
         /* Chop off any trailing / */
         if (((r->uri)[(strlen(r->uri)-1)]) == '/') {
@@ -1401,9 +1400,9 @@ static int request_handler(request_rec *r, int uri_len, int table_num) {
           ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
           return DECLINED;
       }
-      if(!(table_num == JOB_TABLE_NUM && strcmp(JOB_DIR, tmpstr) == 0 ||
-         table_num == HIST_TABLE_NUM && strcmp(HIST_DIR, tmpstr) == 0 ||
-         table_num == NODE_TABLE_NUM && strcmp(NODE_DIR, tmpstr) == 0)) {
+      if(!((table_num == JOB_TABLE_NUM && strcmp(JOB_DIR, tmpstr) == 0) ||
+         (table_num == HIST_TABLE_NUM && strcmp(HIST_DIR, tmpstr) == 0) ||
+         (table_num == NODE_TABLE_NUM && strcmp(NODE_DIR, tmpstr) == 0))) {
          	return DECLINED;
       }     	
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Check: %s", tmpstr);
