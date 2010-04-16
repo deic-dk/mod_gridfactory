@@ -595,7 +595,7 @@ char* recs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
     /* we can't break out here or row won't get cleaned up */
     rownum++;
   }
-  recs = apr_pstrcat(r->pool, recs, "\n</", rec_name, "s> ", NULL);
+  recs = apr_pstrcat(r->pool, recs, "\n</", rec_name, "> ", NULL);
   
   ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning rows");
   ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "%s", recs);
