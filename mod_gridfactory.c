@@ -67,8 +67,8 @@
 module AP_MODULE_DECLARE_DATA authn_dbd_module;
 
 #define JOB_TABLE_NUM 1
-#define  HIST_TABLE_NUM 2
-#define  NODE_TABLE_NUM 3
+#define HIST_TABLE_NUM 2
+#define NODE_TABLE_NUM 3
 
 /* Apache environment variable. This is used to get the DN used for authorizing
  * node updates. */
@@ -379,6 +379,10 @@ char** set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str, char* query){
     char* val;
     int firstrow = 0;
     int i = 0;
+    int first_row_num = 1;
+    if(APR_VERSION<130){
+    	first_row_num=0;
+    }
     
     /*ap_dbd_t* dbd = (ap_dbd_t*)apr_pcalloc(r->pool, 256 * sizeof(ap_dbd_t*));
     dbd = dbd_acquire_fn(r);
@@ -418,7 +422,7 @@ char** set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str, char* query){
         row = NULL;
         // We have to use last argument 1, ... NOT -1. Only random access works.
         // Older libaprutil1 may start with 0 instead of 1...
-        rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, i+1);
+        rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, i+first_row_num);
         if(rv != 0){
             ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
             return NULL;
@@ -1353,7 +1357,8 @@ static int request_handler(request_rec *r, int uri_len, int table_num) {
       }    
       /* GET /db/jobs|history|nodes/UUID */
       else if((table_num == JOB_TABLE_NUM && uri_len > job_dir_len) ||
-              (table_num == NODE_TABLE_NUM && uri_len > node_dir_len)) {
+              (table_num == NODE_TABLE_NUM && uri_len > node_dir_len) ||
+              (table_num == HIST_TABLE_NUM && uri_len > hist_dir_len)) {
         /* this_uuid = "UUID" */
         /* Chop off any trailing / */
         if (((r->uri)[(strlen(r->uri)-1)]) == '/') {
