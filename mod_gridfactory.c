@@ -530,7 +530,7 @@ char* recs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
   }
   
   ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning %i rows", rownum);
-  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, recs);
+  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "%s", recs);
 
   return recs;
 }
@@ -544,26 +544,27 @@ char* recs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
   char* id = "";
   char* recs;
   char* rec_name = (char*)apr_pcalloc(r->pool, 8 * sizeof(char*));
-  char* job_name = "job";
-  char* hist_name = "history";
-  char* node_name = "nodes";
+  char* list_name = (char*)apr_pcalloc(r->pool, 8 * sizeof(char*));
   
   switch(table_num){
     case JOB_TABLE_NUM:
-      snprintf(rec_name, strlen(job_name)+1, job_name);
+      sprintf(rec_name, "job");
+      sprintf(list_name, "jobs");
       break;
     case HIST_TABLE_NUM:
-      snprintf(rec_name, strlen(hist_name)+1, hist_name);
-       break;
+      sprintf(rec_name, "history");
+      sprintf(list_name, "job");
+      break;
     case NODE_TABLE_NUM:
-      snprintf(rec_name, strlen(node_name)+1, node_name);
-       break;
+      sprintf(rec_name, "nodes");
+      sprintf(list_name, "node");
+      break;
     default:
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
   }
 
   recs = "<?xml version=\"1.0\"?>\n<";
-  recs = apr_pstrcat(r->pool, recs, rec_name, "s>", NULL);
+  recs = apr_pstrcat(r->pool, recs, list_name, ">", NULL);
 
   //int numrows = apr_dbd_num_tuples(dbd->driver,res);
   int cols = apr_dbd_num_cols(dbd->driver,res);
@@ -593,7 +594,7 @@ char* recs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
   recs = apr_pstrcat(r->pool, recs, "\n</", rec_name, "s> ", NULL);
   
   ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning rows");
-  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, recs);
+  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "%s", recs);
 
   return recs;
 }
@@ -624,15 +625,15 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
     //apr_cpystrn(query, JOB_RECS_SELECT_Q, strlen(JOB_RECS_SELECT_Q)+1);
     switch(table_num){
       case JOB_TABLE_NUM:
-        snprintf(query, strlen(JOB_RECS_SELECT_Q)+1, JOB_RECS_SELECT_Q);
+        snprintf(query, strlen(JOB_RECS_SELECT_Q)+1, "%s", JOB_RECS_SELECT_Q);
         apr_cpystrn(fields_query, JOB_REC_SHOW_F_Q, strlen(JOB_REC_SHOW_F_Q)+1);
         break;
       case HIST_TABLE_NUM:
-        snprintf(query, strlen(HIST_RECS_SELECT_Q)+1, HIST_RECS_SELECT_Q);
+        snprintf(query, strlen(HIST_RECS_SELECT_Q)+1, "%s", HIST_RECS_SELECT_Q);
         apr_cpystrn(fields_query, HIST_REC_SHOW_F_Q, strlen(HIST_REC_SHOW_F_Q)+1);
         break;
       case NODE_TABLE_NUM:
-        snprintf(query, strlen(NODE_RECS_SELECT_Q)+1,NODE_RECS_SELECT_Q);
+        snprintf(query, strlen(NODE_RECS_SELECT_Q)+1, "%s", NODE_RECS_SELECT_Q);
         apr_cpystrn(fields_query, NODE_REC_SHOW_F_Q, strlen(NODE_REC_SHOW_F_Q)+1);
         break;
       default:
@@ -646,7 +647,7 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
      * append WHERE statements to query.*/
     if(r->args && countchr(r->args, "=") > 0){
       char buffer[strlen(r->args)+1];
-      snprintf(buffer, strlen(r->args)+1, r->args);
+      snprintf(buffer, strlen(r->args)+1, "%s", r->args);
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "args: %s", buffer);
       
       for ((token = strtok_r(buffer, "&", &last)); token;
@@ -953,7 +954,7 @@ void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
     
     if(r->args && countchr(r->args, "=") > 0){
       char buffer[strlen(r->args)+1];
-      snprintf(buffer, strlen(r->args)+1, r->args);
+      snprintf(buffer, strlen(r->args)+1, "%s", r->args);
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "args: %s", buffer);
       
       for ((token = strtok_r(buffer, "&", &last)); token;
