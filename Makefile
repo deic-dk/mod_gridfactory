@@ -7,16 +7,17 @@ MODNAME = gridfactory
 MODFILE = mod_${MODNAME}.so
 SRC2 = mod_${MODNAME}.c
 MODFILE2 = mod_${MODNAME}.la
-APXS2 = apxs2
-
 PKGFILES = ${SRC2} RELEASE README Makefile
+# You may have to set the two variables below manually
+APXS2=`ls /usr/bin/apxs* /usr/sbin/apxs* 2>/dev/null | head -1`
+APR_VERSION=`apr-1-config --version | sed 's/\.//g'`
 
 default: all
 
 all: module
 
 module: ${SRC2}
-	${APXS2} -o ${MODFILE} -c ${SRC2} # -lmysqlclient -laprutil-1 -lapr-1
+	${APXS2} -D APR_VERSION=${APR_VERSION} -o ${MODFILE} -c ${SRC2} # -lmysqlclient -laprutil-1 -lapr-1
 
 install: module
 	${APXS2} -i -a -n ${MODNAME} ${MODFILE2}
