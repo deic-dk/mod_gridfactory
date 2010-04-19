@@ -98,6 +98,15 @@ static int id_col_nr;
 /* Name of the status column. */
 static const char* STATUS_COL = "csStatus";
 
+/* Name of the name column. */
+static const char* NAME_COL = "name";
+
+/* Name of the host column. */
+static const char* HOST_COL = "host";
+
+/* Name of the subnodes DB URL column. */
+static const char* SUBNODES_DB_URL_COL = "subnodesDbUrl";
+
 /* ready value of the status column. */
 static const char* READY = "ready";
 
@@ -107,8 +116,32 @@ static const char* LASTMODIFIED_COL = "lastModified";
 /* Name of the providerInfo column. */
 static const char* PROVIDERINFO_COL = "providerInfo";
 
+/* Name of the allowedVOs column. */
+static const char* ALLOWED_VOS_COL = "allowedVOs";
+
+/* Name of the hypervisors column. */
+static const char* HYPERVISORS_COL = "hypervisors";
+
+/* Name of the inputFileURLs column. */
+static const char* INPUT_FILE_URLS_COL = "inputFileURLs";
+
+/* Name of the runtimeEnvironments column. */
+static const char* RUNTIME_ENVIRONMENTS_COL = "runtimeEnvironments";
+
+/* Name of the outFileMapping column. */
+static const char* OUT_FILE_MAPPING_COL = "outFileMapping";
+
+/* Column holding the name. */
+static int name_col_nr;
+
 /* Column holding the status. */
 static int status_col_nr;
+
+/* Column holding the host. */
+static int host_col_nr;
+
+/* Column holding the subnodes DB URL. */
+static int subnodes_db_url_col_nr;
 
 /* Name of the DB URL pseudo-column. */
 static const char* DBURL_COL = "dbUrl";
@@ -202,7 +235,13 @@ static char* XML_FORMAT_STR = "xml";
 static char* JOB_PUB_FIELDS_STR = "identifier\tname\tcsStatus\tuserInfo\tcreated\tlastModified\trunningSeconds\tramMb\topSys\truntimeEnvironments\tallowedVOs\tvirtualize\tdbUrl";
 
 /* Public fields of the nodeInformation table. */
-static char* NODE_PUB_FIELDS_STR = "identifier\thost\tmaxJobs\tallowedVOs\tvirtualize\thypervisors\tmaxMBPerJob\tproviderInfo\tcreated\tlastModified\tdbUrl";
+static char* NODE_PUB_FIELDS_STR = "identifier\thost\tsubNodesDbUrl\tmaxJobs\tallowedVOs\tvirtualize\thypervisors\tmaxMBPerJob\tproviderInfo\tcreated\tlastModified\tdbUrl";
+
+/* Value indicating output should be text formatted. */
+static int TEXT_FORMAT = 0;
+
+/* Value indicating output should be XML formatted. */
+static int XML_FORMAT = 1;
 
 /* Base URL for the DB web service. */
 char* base_url;
@@ -323,43 +362,28 @@ typedef struct {
     char* providerInfo;
 } db_result;
 
-int set_pub_fields(request_rec *r, char* pub_fields_str, char** pub_fields, int table_num){
+int tokenize_fields_str(request_rec *r, char* fields_str, char** fields, const char* delim){
 
   char* field;
-  const char* delim = "\t";
   char* last;
   int i = 0;
   
-  switch(table_num){
-    case JOB_TABLE_NUM:
-      apr_cpystrn(pub_fields_str, JOB_PUB_FIELDS_STR, strlen(JOB_PUB_FIELDS_STR)+1);
-      break;
-    case HIST_TABLE_NUM:
-      apr_cpystrn(pub_fields_str, JOB_PUB_FIELDS_STR, strlen(JOB_PUB_FIELDS_STR)+1);
-      break;
-    case NODE_TABLE_NUM:
-      apr_cpystrn(pub_fields_str, NODE_PUB_FIELDS_STR, strlen(NODE_PUB_FIELDS_STR)+1);
-      break;
-    default:
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
-  }
-  
   // Use a copy of pub_fields_str (it's modified by the tokenizing)
-  char* tmp_pub_fields_str = (char*)apr_pcalloc(r->pool, 512 * sizeof(char*));
-  apr_cpystrn(tmp_pub_fields_str, pub_fields_str, strlen(pub_fields_str)+1);
+  char* tmp_fields_str = (char*)apr_pcalloc(r->pool, 512 * sizeof(char*));
+  apr_cpystrn(tmp_fields_str, fields_str, strlen(fields_str)+1);
   /* Split the fields on "\t" */
-  for(field = apr_strtok(tmp_pub_fields_str, delim, &last); field != NULL;
+  for(field = apr_strtok(tmp_fields_str, delim, &last); field != NULL;
       field = apr_strtok(NULL, delim, &last)){
-    pub_fields[i] = malloc(MAX_F_SIZE * sizeof(char));
-    if(pub_fields[i] == NULL){
+    fields[i] = malloc(MAX_F_SIZE * sizeof(char));
+    if(fields[i] == NULL){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Out of memory.");
       return -1;
     }
-    apr_cpystrn(pub_fields[i], field, strlen(field)+1);
+    apr_cpystrn(fields[i], field, strlen(field)+1);
     ++i;
   }
 
-  return 0;
+  return i;
 }
 
 char** set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str, char* query){
@@ -437,8 +461,17 @@ char** set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str, char* query){
         if(apr_strnatcmp(val, ID_COL) == 0){
           id_col_nr = i;
         }
-        else if(apr_strnatcmp(val, STATUS_COL) == 0){
+        if(apr_strnatcmp(val, NAME_COL) == 0){
+          name_col_nr = i;
+        }
+        if(apr_strnatcmp(val, STATUS_COL) == 0){
           status_col_nr = i;
+        }
+        if(apr_strnatcmp(val, HOST_COL) == 0){
+          host_col_nr = i;
+        }
+        if(apr_strnatcmp(val, SUBNODES_DB_URL_COL) == 0){
+          subnodes_db_url_col_nr = i;
         }
         firstrow = -1;
         i++;
@@ -556,18 +589,19 @@ char* recs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
       sprintf(list_name, "jobs");
       break;
     case HIST_TABLE_NUM:
-      sprintf(rec_name, "history");
-      sprintf(list_name, "job");
+      sprintf(rec_name, "job");
+      sprintf(list_name, "history");
       break;
     case NODE_TABLE_NUM:
-      sprintf(rec_name, "nodes");
-      sprintf(list_name, "node");
+      sprintf(rec_name, "node");
+      sprintf(list_name, "nodes");
       break;
     default:
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
   }
 
-  recs = "<?xml version=\"1.0\"?>\n<";
+  recs = "<?xml version=\"1.0\"?>\n<?xml-stylesheet type=\"text/xsl\" href=\"/gridfactory/xsl/";
+  recs = apr_pstrcat(r->pool, recs, list_name, ".xsl\"?>\n<", NULL);
   recs = apr_pstrcat(r->pool, recs, list_name, ">", NULL);
 
   //int numrows = apr_dbd_num_tuples(dbd->driver,res);
@@ -577,25 +611,40 @@ char* recs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
     row = NULL;
     rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
     if (rv != 0) {
-        break;
+      break;
     }
-    recs = apr_pstrcat(r->pool, recs, "\n  <", rec_name, NULL);
+    recs = apr_pstrcat(r->pool, recs, "\n  <", rec_name, ">", NULL);
+    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "cols: %i, %i, %i", status_col_nr, host_col_nr,
+       subnodes_db_url_col_nr);
     for (i = 0 ; i < cols ; i++) {
       val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
-      ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "--> %s", val);
+      ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "%i/%i --> %s", table_num, i, val);
+      if(val == NULL){
+      	continue;
+      }
       if(i == id_col_nr){
         id = val;
-        recs = apr_pstrcat(r->pool, recs, " ", ID_COL, "=\"", val, "\"", NULL);
+        recs = apr_pstrcat(r->pool, recs, "\n    <", ID_COL, ">", val, "</", ID_COL, ">", NULL);
       }
-      else if(i == status_col_nr){
-        recs = apr_pstrcat(r->pool, recs, " ", STATUS_COL, "=\"", val, "\"", NULL);
+      else if((table_num == JOB_TABLE_NUM || table_num == HIST_TABLE_NUM)  && i == name_col_nr){
+        recs = apr_pstrcat(r->pool, recs, "\n    <", NAME_COL, ">", val, "</", NAME_COL, ">", NULL);
+      }
+      else if((table_num == JOB_TABLE_NUM || table_num == HIST_TABLE_NUM)  && i == status_col_nr){
+        recs = apr_pstrcat(r->pool, recs, "\n    <", STATUS_COL, ">", val, "</", STATUS_COL, ">", NULL);
+      }
+      else if(table_num == NODE_TABLE_NUM && i == host_col_nr){
+        recs = apr_pstrcat(r->pool, recs, "\n    <", HOST_COL, ">", val, "</", HOST_COL, ">", NULL);
+      }
+      else if(table_num == NODE_TABLE_NUM && i == subnodes_db_url_col_nr){
+        recs = apr_pstrcat(r->pool, recs, "\n    <", SUBNODES_DB_URL_COL, ">", val, "</", SUBNODES_DB_URL_COL, ">", NULL);
       }
     }
-    recs = apr_pstrcat(r->pool, recs, " ", DBURL_COL, "=\"", constructURL(r, id), "\"/>", NULL);
+    recs = apr_pstrcat(r->pool, recs, "\n    <", DBURL_COL, ">", constructURL(r, id), "</", DBURL_COL, ">", NULL);
+    recs = apr_pstrcat(r->pool, recs, "\n  </", rec_name, "> ", NULL);
     /* we can't break out here or row won't get cleaned up */
     rownum++;
   }
-  recs = apr_pstrcat(r->pool, recs, "\n</", rec_name, "> ", NULL);
+  recs = apr_pstrcat(r->pool, recs, "\n</", list_name, "> ", NULL);
   
   ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning rows");
   ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "%s", recs);
@@ -624,21 +673,24 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
     char** fields;
     char* pub_fields_str = (char*)apr_pcalloc(r->pool, 512 * sizeof(char*));
     char* fields_query = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
-    char** pub_fields = (char**)apr_pcalloc(r->pool, 256 * sizeof(char**));
+    char** pub_fields = (char**)apr_pcalloc(r->pool, 256 * sizeof(char**));    
     
     //apr_cpystrn(query, JOB_RECS_SELECT_Q, strlen(JOB_RECS_SELECT_Q)+1);
     switch(table_num){
       case JOB_TABLE_NUM:
         snprintf(query, strlen(JOB_RECS_SELECT_Q)+1, "%s", JOB_RECS_SELECT_Q);
         apr_cpystrn(fields_query, JOB_REC_SHOW_F_Q, strlen(JOB_REC_SHOW_F_Q)+1);
+        apr_cpystrn(pub_fields_str, JOB_PUB_FIELDS_STR, strlen(JOB_PUB_FIELDS_STR)+1);
         break;
       case HIST_TABLE_NUM:
         snprintf(query, strlen(HIST_RECS_SELECT_Q)+1, "%s", HIST_RECS_SELECT_Q);
         apr_cpystrn(fields_query, HIST_REC_SHOW_F_Q, strlen(HIST_REC_SHOW_F_Q)+1);
+        apr_cpystrn(pub_fields_str, JOB_PUB_FIELDS_STR, strlen(JOB_PUB_FIELDS_STR)+1);
         break;
       case NODE_TABLE_NUM:
         snprintf(query, strlen(NODE_RECS_SELECT_Q)+1, "%s", NODE_RECS_SELECT_Q);
         apr_cpystrn(fields_query, NODE_REC_SHOW_F_Q, strlen(NODE_REC_SHOW_F_Q)+1);
+        apr_cpystrn(pub_fields_str, NODE_PUB_FIELDS_STR, strlen(NODE_PUB_FIELDS_STR)+1);
         break;
       default:
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s --> %i", r->uri, table_num);
@@ -662,10 +714,10 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
         if(apr_strnatcmp(subtoken1, FORMAT_STR) == 0){
           subtoken2 = strtok_r(NULL, "=", &last1);
           if(apr_strnatcmp(subtoken2, TEXT_FORMAT_STR) == 0){
-            ret->format = 0;
+            ret->format = TEXT_FORMAT;
           }
           else if(apr_strnatcmp(subtoken2, XML_FORMAT_STR) == 0){
-            ret->format = 1;
+            ret->format = XML_FORMAT;
           }
           else{
             ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Format %s unknown.", subtoken2);
@@ -713,13 +765,13 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to acquire database connection.");
         return NULL;
     }
-    if(ret->format == 0){
-      if(set_pub_fields(r, pub_fields_str, pub_fields, table_num) < 0 && priv){
+    if((fields=set_fields(r, dbd, fields_str, fields_query))==NULL){
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to set fields.");
+      return NULL;
+    }
+    if(ret->format == TEXT_FORMAT){
+      if(tokenize_fields_str(r, pub_fields_str, pub_fields, "\t") < 0 && priv){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to set public fields.");
-        return NULL;
-      }
-      if((fields=set_fields(r, dbd, fields_str, fields_query))==NULL){
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to set fields.");
         return NULL;
       }
     }
@@ -731,11 +783,11 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
     }
 
     // format result
-    if(ret->format == 0){
+    if(ret->format == TEXT_FORMAT){
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning text");
       ret->res = recs_text_format(r, dbd, res, priv, pub_fields_str, fields_str, fields);
     }
-    else if(ret->format == 1){
+    else if(ret->format == XML_FORMAT){
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning XML");
       ret->res = recs_xml_format(r, dbd, res, priv, table_num);
     }
@@ -840,15 +892,68 @@ void rec_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
     ret->res = rec;
 }
 
+static int is_list_field(char* field){
+	// allowedVOs, hypervisors, inputFileURLs, runtimeEnvironments
+	if(strcmp(field, ALLOWED_VOS_COL) == 0){
+		return 1;
+	}
+	else if(strcmp(field, HYPERVISORS_COL) == 0){
+		return 1;
+	}
+	else if(strcmp(field, INPUT_FILE_URLS_COL) == 0){
+		return 1;
+	}
+	else if(strcmp(field, RUNTIME_ENVIRONMENTS_COL) == 0){
+		return 1;
+	}
+	return 0;
+}
+
+static int is_out_file_mapping_field(char* field){
+	if(strcmp(field, OUT_FILE_MAPPING_COL) == 0){
+		return 1;
+	}
+	return 0;
+}
+
+static char* list_xml_format(request_rec *r, char* val, char* sub_field){
+  char** fields = (char**)apr_pcalloc(r->pool, 256 * sizeof(char**));
+  char* tmp_val = "";
+	int cols = tokenize_fields_str(r, val, fields, " ");
+	int i;
+	for(i = 0 ; i < cols ; i++){
+		tmp_val = apr_pstrcat(r->pool, tmp_val, "\n    <", sub_field, ">", fields[i],
+		   "</", sub_field, ">", NULL);
+	}
+	tmp_val = apr_pstrcat(r->pool, tmp_val, "\n  ", NULL);
+	return tmp_val;
+}
+
+static char* out_file_map_format(request_rec *r, char* val){
+  char** fields = (char**)apr_pcalloc(r->pool, 256 * sizeof(char**));
+  char* tmp_val = "";
+  int i;
+	int cols = tokenize_fields_str(r, val, fields, " ");
+	for(i = 0 ; i < cols ; i = i + 2){
+		tmp_val = apr_pstrcat(r->pool, tmp_val, "\n    <source>", fields[i],
+		   "</source>", "<destination>", fields[i+1], "</destination>", NULL);
+	}
+	tmp_val = apr_pstrcat(r->pool, tmp_val, "\n  ", NULL);
+	return tmp_val;
+}
+
 void rec_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
-   db_result* ret, char** fields){
+   db_result* ret, char** fields, char* rec_name){
 
     apr_dbd_row_t* row;
     apr_status_t rv;
-    char* val;
+    char* val = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
+    char* sub_field = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
     int i;
     int firstrow = 0;
-    char* rec = "<?xml version=\"1.0\"?>\n<job>";
+    char* rec = "<?xml version=\"1.0\"?>\n<?xml-stylesheet type=\"text/xsl\" href=\"/gridfactory/xsl/";
+    rec = apr_pstrcat(r->pool, rec, rec_name, ".xsl\"?>\n<", rec_name, ">", NULL);
+    char* tmp_val;
     
     int numrows = apr_dbd_num_tuples(dbd->driver,res);
     int cols = apr_dbd_num_cols(dbd->driver,res);
@@ -866,7 +971,19 @@ void rec_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
         val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
         ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "--> %s", val);
         if(val && strcmp(val, "") != 0){
-          rec = apr_pstrcat(r->pool, rec, "\n  <", fields[i], ">", val,
+        	// Format allowedVOs, hypervisors, inputFileURLs, runtimeEnvironments
+        	if(is_list_field(fields[i])){
+        		apr_cpystrn(sub_field, fields[i], strlen(fields[i]));
+            tmp_val = list_xml_format(r, val, sub_field);
+        	}
+        	// Format outFileMapping
+        	else if(is_out_file_mapping_field(fields[i])){
+        		tmp_val = out_file_map_format(r, val);
+        	}
+        	else{
+        		tmp_val = val;
+        	}
+          rec = apr_pstrcat(r->pool, rec, "\n  <", fields[i], ">", tmp_val,
              "</", fields[i], ">", NULL);
         }
         // Set res.status
@@ -882,7 +999,7 @@ void rec_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
       rownum++;
       /* we can't break out here or row won't get cleaned up */
     }
-    rec = apr_pstrcat(r->pool, rec, "\n</job> ", NULL);
+    rec = apr_pstrcat(r->pool, rec, "\n</", rec_name, "> ", NULL);
     
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning record:");
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "%s", rec);
@@ -906,6 +1023,7 @@ void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
     char* fields_str = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
     char* fields_query = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
     char** fields;
+    char* rec_name = (char*)apr_pcalloc(r->pool, 8 * sizeof(char*));
     
     switch(table_num){
       case JOB_TABLE_NUM:
@@ -913,14 +1031,17 @@ void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
         //snprintf(query, strlen(JOB_REC_SELECT_Q)+1, JOB_REC_SELECT_Q);
         apr_cpystrn(query, JOB_REC_SELECT_Q, strlen(JOB_REC_SELECT_Q)+1);
         apr_cpystrn(fields_query, JOB_REC_SHOW_F_Q, strlen(JOB_REC_SHOW_F_Q)+1);
+        sprintf(rec_name, "job");
         break;
       case HIST_TABLE_NUM:
         apr_cpystrn(query, HIST_REC_SELECT_Q, strlen(HIST_REC_SELECT_Q)+1);
         apr_cpystrn(fields_query, HIST_REC_SHOW_F_Q, strlen(HIST_REC_SHOW_F_Q)+1);
+        sprintf(rec_name, "job");
         break;
       case NODE_TABLE_NUM:
         apr_cpystrn(query, NODE_REC_SELECT_Q, strlen(NODE_REC_SELECT_Q)+1);
         apr_cpystrn(fields_query, NODE_REC_SHOW_F_Q, strlen(NODE_REC_SHOW_F_Q)+1);
+        sprintf(rec_name, "node");
         break;
       default:
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
@@ -969,10 +1090,10 @@ void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
         if(apr_strnatcmp(subtoken1, FORMAT_STR) == 0){
           subtoken2 = strtok_r(NULL, "=", &last1);
           if(apr_strnatcmp(subtoken2, TEXT_FORMAT_STR) == 0){
-            ret->format = 0;
+            ret->format = TEXT_FORMAT;
           }
           else if(apr_strnatcmp(subtoken2, XML_FORMAT_STR) == 0){
-            ret->format = 1;
+            ret->format = XML_FORMAT;
           }
           else{
             ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Format %s unknown.", subtoken2);
@@ -985,7 +1106,7 @@ void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
       rec_text_format(r, dbd, dbres, ret, fields);
     }
     else if(ret->format == 1){
-      rec_xml_format(r, dbd, dbres, ret, fields);
+      rec_xml_format(r, dbd, dbres, ret, fields, rec_name);
     }
     
     ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Returning:");
