@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <install4j version="4.2.4" transformSequenceNumber="2">
-  <directoryPresets config="./gridfactory.conf" />
+  <directoryPresets config="." />
   <application name="GridFactory Apache module" distributionSourceDir="" applicationId="0605-8661-3754-8069" mediaDir="./distribution" mediaFilePattern="${compiler:sys.shortName}_${compiler:sys.platform}_${compiler:distro}_${compiler:sys.version}" compression="6" lzmaCompression="false" pack200Compression="false" excludeSignedFromPacking="true" keepModificationTimes="false" missingFilesStrategy="warn" shortName="mod_gridfactory" publisher="Frederik Orellana, Niels Bohr Institute, University of Copenhagen" publisherWeb="" version="0.1.5b" allPathsRelative="true" backupOnSave="false" autoSave="false" convertDotsToUnderscores="true" macSignature="????" installerName="" javaMinVersion="0" javaMaxVersion="" allowBetaVM="false" jdkMode="runtimeJre" jdkName="">
     <languages skipLanguageSelection="false" languageSelectionInPrincipalLanguage="false">
       <principalLanguage id="en" customLocalizationFile="" />
@@ -30,12 +30,18 @@
       <mountPoint id="91" root="" location="etc/httpd/conf.d" mode="755" />
       <mountPoint id="92" root="" location="etc/apache2" mode="755" />
       <mountPoint id="140" root="" location="etc/apache2/sites-available" mode="755" />
+      <mountPoint id="181" root="" location="var" mode="755" />
+      <mountPoint id="182" root="" location="var/spool" mode="755" />
+      <mountPoint id="183" root="" location="var/spool/gridfactory" mode="755" />
     </mountPoints>
     <entries>
       <fileEntry mountPoint="87" file="./.libs/mod_gridfactory.so" overwrite="4" shared="false" mode="644" uninstallMode="0" />
       <fileEntry mountPoint="94" file="./.libs/mod_gridfactory.so" overwrite="4" shared="false" mode="644" uninstallMode="0" />
       <fileEntry mountPoint="91" file="./gridfactory.conf" overwrite="5" shared="false" mode="644" uninstallMode="0" />
       <fileEntry mountPoint="140" file="./gridfactory.conf" overwrite="5" shared="false" mode="644" uninstallMode="0" />
+      <dirEntry mountPoint="183" file="./xsl" overwrite="4" shared="false" mode="644" uninstallMode="0" excludeSuffixes="" dirMode="755">
+        <exclude />
+      </dirEntry>
     </entries>
     <components />
   </files>
