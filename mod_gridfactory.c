@@ -37,15 +37,21 @@
  * 
  * The directory "db" should be a symlink to /var/spool/gridfactory.
  * 
- * Two configuration directives are available:
+ * three configuration directives are available:
+ * 
+ *   PrepareStatements "On|Off"
+ *      Whether or not MySQL prepared statements should be used. I don't
+ *      really see any reason to set this to Off.
  * 
  *   DBBaseURL "URL"
  *      The URL served with this module. If this is not specified,
  *      "https://my.host.hame/db/jobs/" is used.
  * 
- *   PrepareStatements "On|Off"
- *      Whether or not MySQL prepared statements should be used. I don't
- *      really see any reason to set this to Off.
+ *   XSLDirURL "URL"
+ *      Where to find job.xsl, jobs.xsl, history.xsl, nodes.xsl and node.xsl.
+ *      These are used for formatting the output when ?mode=xsl is used.
+ * 
+ * 
  */
 
 #include "ap_provider.h"
@@ -246,6 +252,9 @@ static int XML_FORMAT = 1;
 /* Base URL for the DB web service. */
 char* base_url;
 
+/* URL to directory containing job.xsl, jobs.xsl, history.xsl, node.xsl and nodes.xsl. */
+char* xsl_dir;
+
 /* Forward declaration */
 module AP_MODULE_DECLARE_DATA gridfactory_module;
 
@@ -257,6 +266,7 @@ module AP_MODULE_DECLARE_DATA gridfactory_module;
 typedef struct {
   char* ps_;
   char* url_;
+  char* xsl_;
 } config_rec;
 
 static void*
@@ -273,6 +283,7 @@ do_config(apr_pool_t* p, char* d)
   config_rec* conf = (config_rec*)apr_pcalloc(p, sizeof(config_rec));
   conf->ps_ = 0;      /* null pointer */
   conf->url_ = 0;      /* null pointer */
+  conf->xsl_ = 0;      /* null pointer */
   return conf;
 }
 
@@ -309,13 +320,23 @@ config_ps(cmd_parms* cmd, void* mconfig, const char* arg)
 static const char*
 config_url(cmd_parms* cmd, void* mconfig, const char* arg)
 {
-  if (((config_rec*)mconfig)->url_)
+  if(((config_rec*)mconfig)->url_){
     return "DBBaseURL already set.";
-
+  }
   ((config_rec*)mconfig)->url_ = (char*) arg;
-  
   return 0;
 }
+
+static const char*
+config_xsl(cmd_parms* cmd, void* mconfig, const char* arg)
+{
+  if(((config_rec*)mconfig)->xsl_){
+    return "XSLDirURL already set.";
+  }
+  ((config_rec*)mconfig)->xsl_ = (char*) arg;
+  return 0;
+}
+
 
 static const command_rec command_table[] =
 {
@@ -325,6 +346,9 @@ static const command_rec command_table[] =
     AP_INIT_TAKE1("DBBaseURL", config_url,
                   NULL, OR_FILEINFO,
                   "Base URL of the DB web service."),
+    AP_INIT_TAKE1("XSLDirURL", config_xsl,
+                  NULL, OR_FILEINFO,
+                  "Where to get XSL files for formatting XML output."),
     {NULL}
 };
 
@@ -600,8 +624,8 @@ char* recs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
   }
 
-  recs = "<?xml version=\"1.0\"?>\n<?xml-stylesheet type=\"text/xsl\" href=\"/gridfactory/xsl/";
-  recs = apr_pstrcat(r->pool, recs, list_name, ".xsl\"?>\n<", NULL);
+  recs = "<?xml version=\"1.0\"?>\n<?xml-stylesheet type=\"text/xsl\" href=\"";
+  recs = apr_pstrcat(r->pool, recs, xsl_dir, list_name, ".xsl\"?>\n<", NULL);
   recs = apr_pstrcat(r->pool, recs, list_name, ">", NULL);
 
   //int numrows = apr_dbd_num_tuples(dbd->driver,res);
@@ -951,8 +975,8 @@ void rec_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
     char* sub_field = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
     int i;
     int firstrow = 0;
-    char* rec = "<?xml version=\"1.0\"?>\n<?xml-stylesheet type=\"text/xsl\" href=\"/gridfactory/xsl/";
-    rec = apr_pstrcat(r->pool, rec, rec_name, ".xsl\"?>\n<", rec_name, ">", NULL);
+    char* rec = "<?xml version=\"1.0\"?>\n<?xml-stylesheet type=\"text/xsl\" href=\"";
+    rec = apr_pstrcat(r->pool, rec, xsl_dir, rec_name, ".xsl\"?>\n<", rec_name, ">", NULL);
     char* tmp_val;
     
     int numrows = apr_dbd_num_tuples(dbd->driver,res);
@@ -1631,6 +1655,22 @@ static int gridfactory_db_handler(request_rec *r) {
       apr_cpystrn(base_url, conf->url_, strlen(conf->url_)+1);
       base_url = apr_pstrcat(r->pool, base_url, main_path, NULL);
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "DB base URL set to %s. Setting base_url to %s", conf->url_, base_url);
+    }
+    
+    /**
+     * If XSLDirURL was not set in the preferences, default to
+     * ../../gridfactory/xsl/.
+     */
+    xsl_dir = (char*)apr_pcalloc(r->pool, sizeof(char*) * 256);
+    if(conf->xsl_ == NULL || strcmp(conf->xsl_, "") == 0){
+      tmp_url = "../../gridfactory/xsl/";
+      apr_cpystrn(xsl_dir, tmp_url, strlen(tmp_url)+1);
+      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "XSL directory URL not set, defaulting xsl_dir to %s, %s",
+        xsl_dir, r->uri);
+    }
+    else{
+      apr_cpystrn(xsl_dir, conf->xsl_, strlen(conf->xsl_)+1);
+      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "DB base URL set to %s. Setting xsl_dir to %s", conf->xsl_, xsl_dir);
     }
     
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Request: %s", r->the_request);
