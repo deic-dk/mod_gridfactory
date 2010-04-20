@@ -7,20 +7,16 @@
       <head><title>Jobs</title></head>
       <body style="background-color:white">
       
-      <xsl:for-each select="jobs|history/job">
-        <xsl:apply-templates select="."/>
+      <xsl:for-each select="jobs/job|history/job">
+        <div style="width:450px; padding:5px; margin-bottom:10px;
+        border:5px double black; color:black; background-color:white;
+        text-align:left">
+          <xsl:apply-templates select="."/>
+        </div>
       </xsl:for-each>
 
     </body>
   </html>
-</xsl:template>
-
-<xsl:template match="job">
-  <div style="width:450px; padding:5px; margin-bottom:10px;
-        border:5px double black; color:black; background-color:white;
-        text-align:left">
-    <xsl:value-of select="."/>
-   </div>
 </xsl:template>
 
 <xsl:template match="job/*">
