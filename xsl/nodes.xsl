@@ -8,15 +8,19 @@
       <body style="background-color:white">
       
       <xsl:for-each select="nodes/node">
-        <div style="width:450px; padding:5px; margin-bottom:10px;
-        border:5px double black; color:black; background-color:white;
-        text-align:left">
-          <xsl:apply-templates select="."/>
-        </div>
+        <xsl:apply-templates select="."/>
       </xsl:for-each>
 
     </body>
   </html>
+</xsl:template>
+
+<xsl:template match="node">
+  <div style="width:450px; padding:5px; margin-bottom:10px;
+        border:5px double black; color:black; background-color:white;
+        text-align:left">
+    <xsl:value-of select="."/>
+   </div>
 </xsl:template>
 
 <xsl:template match="node/*">
