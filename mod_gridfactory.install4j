@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <install4j version="4.2.4" transformSequenceNumber="2">
-  <directoryPresets config="." />
+  <directoryPresets config="./64bits/mod_gridfactory.so" />
   <application name="GridFactory Apache module" distributionSourceDir="" applicationId="0605-8661-3754-8069" mediaDir="./distribution" mediaFilePattern="${compiler:sys.shortName}_${compiler:sys.platform}_${compiler:distro}_${compiler:sys.version}" compression="6" lzmaCompression="false" pack200Compression="false" excludeSignedFromPacking="true" keepModificationTimes="false" missingFilesStrategy="warn" shortName="mod_gridfactory" publisher="Frederik Orellana, Niels Bohr Institute, University of Copenhagen" publisherWeb="" version="0.1.5b" allPathsRelative="true" backupOnSave="false" autoSave="false" convertDotsToUnderscores="true" macSignature="????" installerName="" javaMinVersion="0" javaMaxVersion="" allowBetaVM="false" jdkMode="runtimeJre" jdkName="">
     <languages skipLanguageSelection="false" languageSelectionInPrincipalLanguage="false">
       <principalLanguage id="en" customLocalizationFile="" />
@@ -25,6 +25,11 @@
       <mountPoint id="87" root="" location="usr/lib/httpd/modules" mode="755" />
       <mountPoint id="88" root="" location="usr/lib/apache2" mode="755" />
       <mountPoint id="94" root="" location="usr/lib/apache2/modules" mode="755" />
+      <mountPoint id="265" root="" location="usr/lib64" mode="755" />
+      <mountPoint id="266" root="" location="usr/lib64/apache2" mode="755" />
+      <mountPoint id="267" root="" location="usr/lib64/apache2/modules" mode="755" />
+      <mountPoint id="268" root="" location="usr/lib64/httpd" mode="755" />
+      <mountPoint id="269" root="" location="usr/lib64/httpd/modules" mode="755" />
       <mountPoint id="89" root="" location="etc" mode="755" />
       <mountPoint id="90" root="" location="etc/httpd" mode="755" />
       <mountPoint id="91" root="" location="etc/httpd/conf.d" mode="755" />
@@ -38,6 +43,8 @@
     <entries>
       <fileEntry mountPoint="87" file="./.libs/mod_gridfactory.so" overwrite="4" shared="false" mode="644" uninstallMode="0" />
       <fileEntry mountPoint="94" file="./.libs/mod_gridfactory.so" overwrite="4" shared="false" mode="644" uninstallMode="0" />
+      <fileEntry mountPoint="267" file="./64bits/mod_gridfactory.so" overwrite="4" shared="false" mode="644" uninstallMode="0" />
+      <fileEntry mountPoint="269" file="./64bits/mod_gridfactory.so" overwrite="4" shared="false" mode="644" uninstallMode="0" />
       <fileEntry mountPoint="91" file="./gridfactory.conf" overwrite="5" shared="false" mode="644" uninstallMode="0" />
       <fileEntry mountPoint="140" file="./gridfactory.conf" overwrite="5" shared="false" mode="644" uninstallMode="0" />
       <dirEntry mountPoint="224" file="./xsl" overwrite="4" shared="false" mode="644" uninstallMode="0" excludeSuffixes="" dirMode="755">
