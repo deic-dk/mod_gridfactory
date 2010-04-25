@@ -1663,7 +1663,7 @@ static int gridfactory_db_handler(request_rec *r) {
      */
     xsl_dir = (char*)apr_pcalloc(r->pool, sizeof(char*) * 256);
     if(conf->xsl_ == NULL || strcmp(conf->xsl_, "") == 0){
-      tmp_url = "../../gridfactory/xsl/";
+      tmp_url = "/gridfactory/xsl/";
       apr_cpystrn(xsl_dir, tmp_url, strlen(tmp_url)+1);
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "XSL directory URL not set, defaulting xsl_dir to %s, %s",
         xsl_dir, r->uri);
