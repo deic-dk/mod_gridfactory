@@ -1367,7 +1367,7 @@ int update_rec(request_rec *r, char* uuid, int table_num) {
       const char* client_dn = apr_table_get(subreq->subprocess_env, CLIENT_S_DN_STRING);
       if(ret.providerInfo && strcmp(client_dn, ret.providerInfo) != 0){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-           "An existing nodeInformation records can only be changed by its creator %s <-> %s",
+           "An existing nodeInformation record can only be changed by its creator %s <-> %s",
            client_dn, ret.providerInfo);
         return DECLINED;
       }
