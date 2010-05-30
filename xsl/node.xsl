@@ -26,6 +26,7 @@
     <xsl:apply-templates select="instance"/>
     <text style="font-family:Verdana, Arial; font-size:12pt">
       <b><xsl:value-of select="name()"/></b>: <a href="{$subnodesDbUrl}?format=xml"><xsl:value-of select="."/></a>
+      (<a href="{$subnodesDbUrl}/../../../gridfactory/">info</a>)
       <br />
     </text>
   </xsl:template>
