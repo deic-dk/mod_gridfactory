@@ -92,8 +92,6 @@ static const char* LABEL = "gridfactory_dbd_0";
 static const char* LABEL1 = "gridfactory_dbd_1";
 static const char* LABEL2 = "gridfactory_dbd_2";
 static const char* LABEL3 = "gridfactory_dbd_3";
-static const char* LABEL4 = "gridfactory_dbd_4";
-static const char* LABEL5 = "gridfactory_dbd_5";
 
 /* Name of the identifier column. */
 static const char* ID_COL = "identifier";
@@ -121,6 +119,9 @@ static const char* LASTMODIFIED_COL = "lastModified";
 
 /* Name of the providerInfo column. */
 static const char* PROVIDERINFO_COL = "providerInfo";
+
+/* Name of the providerInfo column. */
+static const char* NODEID_COL = "nodeId";
 
 /* Name of the allowedVOs column. */
 static const char* ALLOWED_VOS_COL = "allowedVOs";
@@ -190,12 +191,6 @@ static const char* NODE_REC_SELECT_Q = "SELECT * FROM `nodeInformation` WHERE id
 
 /* Prepared statement string to update job record. */
 static const char* JOB_REC_UPDATE_PS_1 = "UPDATE `jobDefinition` SET lastModified = NOW() WHERE identifier LIKE ?";
-
-/* Prepared statement string to update job record. */
-static const char* JOB_REC_UPDATE_PS_2 = "UPDATE `jobDefinition` SET lastModified = NOW(), csStatus = ? WHERE identifier LIKE ?";
-
-/* Prepared statement string to update job record. */
-static const char* JOB_REC_UPDATE_PS_3 = "UPDATE `jobDefinition` SET lastModified = NOW(), csStatus = ?, providerInfo = ? WHERE identifier LIKE ?";
 
 /* Query to update job record. */
 static const char* JOB_REC_UPDATE_Q = "UPDATE `jobDefinition` SET lastModified = NOW()";
@@ -296,10 +291,8 @@ dbd_prepare(cmd_parms* cmd, void* cfg)
 {
     dbd_prepare_fn(cmd->server, JOB_REC_SELECT_PS, LABEL);
     dbd_prepare_fn(cmd->server, JOB_REC_UPDATE_PS_1, LABEL1);
-    dbd_prepare_fn(cmd->server, JOB_REC_UPDATE_PS_2, LABEL2);
-    dbd_prepare_fn(cmd->server, JOB_REC_UPDATE_PS_3, LABEL3);
-    dbd_prepare_fn(cmd->server, HIST_REC_SELECT_PS, LABEL4);
-    dbd_prepare_fn(cmd->server, NODE_REC_SELECT_PS, LABEL5);
+    dbd_prepare_fn(cmd->server, HIST_REC_SELECT_PS, LABEL2);
+    dbd_prepare_fn(cmd->server, NODE_REC_SELECT_PS, LABEL3);
  }
 
 static const char*
@@ -379,7 +372,7 @@ typedef struct {
     char* res;
     /* Used only by update_rec, to check if a job is
      * "ready" before allowing writing. If a job is "ready"
-     * only writing the status (csStatus) is allowed. */
+     * only writing the csStatus, nodeId and providerInfo is allowed. */
     char* status;
     /* Used only by update_rec to check if a node record
      * was created by the user trying to modify it. */
@@ -844,11 +837,11 @@ void get_rec_ps(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
         str = apr_pstrcat(r->pool, "%", uuid, NULL);
         break;
       case HIST_TABLE_NUM:
-        statement = apr_hash_get(dbd->prepared, LABEL4, APR_HASH_KEY_STRING);
+        statement = apr_hash_get(dbd->prepared, LABEL2, APR_HASH_KEY_STRING);
         str = apr_pstrcat(r->pool, "/%", uuid, NULL);
         break;
       case NODE_TABLE_NUM:
-        statement = apr_hash_get(dbd->prepared, LABEL5, APR_HASH_KEY_STRING);
+        statement = apr_hash_get(dbd->prepared, LABEL3, APR_HASH_KEY_STRING);
         str = apr_pstrcat(r->pool, "/%", uuid, NULL);
         break;
       default:
@@ -1317,26 +1310,27 @@ int update_rec(request_rec *r, char* uuid, int table_num) {
 
   int nrows;
   /* 0 -> no fields to be updated (except for lastModified),
-     1 -> only csStatus or providerInfo to be updated,
-     2 -> only csStatus and providerInfo to be updated,
-     3 -> other than csStatus and providerInfo to be updated. */
+     1 -> only csStatus, nodeId or providerInfo to be updated,
+     2 -> other than csStatus, nodeId or providerInfo to be updated. */
   int status_only = 0;
   for(index = apr_hash_first(NULL, put_data);
      index; index = apr_hash_next(index)){
     const char *k;
     const char *v;
     apr_hash_this(index, (const void**)&k, NULL, (void**)&v);
-    if(status_only < 2 && (apr_strnatcmp(k, STATUS_COL) == 0 ||
+    if(status_only == 0 && (apr_strnatcmp(k, STATUS_COL) == 0 ||
+       apr_strnatcmp(k, NODEID_COL) == 0 ||
        apr_strnatcmp(k, PROVIDERINFO_COL) == 0)){
-      status_only = status_only + 1;
+      status_only = 1;
     }
     if(apr_strnatcmp(k, PROVIDERINFO_COL) == 0 ){
       provider = v;
     }
-    if(apr_strnatcmp(k, LASTMODIFIED_COL) != 0 &&
+    if(status_only < 2 && apr_strnatcmp(k, LASTMODIFIED_COL) != 0 &&
        apr_strnatcmp(k, STATUS_COL) != 0 &&
-       apr_strnatcmp(k, PROVIDERINFO_COL) != 0){
-      status_only = 3;
+       apr_strnatcmp(k, PROVIDERINFO_COL) != 0 &&
+       apr_strnatcmp(k, NODEID_COL) != 0){
+      status_only = 2;
     }
     if(apr_strnatcmp(k, LASTMODIFIED_COL) != 0){
       update_query = apr_pstrcat(r->pool, update_query, ", ", ap_escape_html(r->pool, k), " = '",
@@ -1347,12 +1341,12 @@ int update_rec(request_rec *r, char* uuid, int table_num) {
   /* If someone is trying to update other jobDefintion fields than csStatus or
      changing only lastModified, check if the job status starts with 'ready';
      if it does, decline. */
-  if(table_num == JOB_TABLE_NUM && status_only != 1 && status_only != 2){
+  if(table_num == JOB_TABLE_NUM && status_only == 2){
     select_query = apr_pstrcat(r->pool, select_query, JOB_REC_SELECT_Q, NULL);
     get_rec(r, uuid, &ret, table_num);
-    if(&ret != NULL && ret.status && strstr(READY, ret.status) != NULL){
+    if(&ret != NULL && ret.status && strlen(ret.status)>0 && strstr(READY, ret.status) != NULL){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-         "For %s jobs, only changing csStatus and providerInfo is allowed. %i --> %s",
+         "For %s jobs, only changing csStatus, nodeId and providerInfo is allowed. %i --> %s",
          ret.status, status_only, update_query);
       return DECLINED;
     }
@@ -1393,33 +1387,6 @@ int update_rec(request_rec *r, char* uuid, int table_num) {
     if(apr_dbd_pvquery(dbd->driver, r->pool, dbd->handle, &nrows,
        statement, str) != 0) {
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error for %s.", str);
-    }
-  }
-  else if(table_num == JOB_TABLE_NUM && conf->ps_ != NULL &&
-          apr_strnatcasecmp(conf->ps_, "On") == 0 && status_only == 1 && provider == NULL){
-    /* If only the csStatus key is present, use prepared statement. */
-    apr_dbd_prepared_t* statement = apr_hash_get(dbd->prepared, LABEL2, APR_HASH_KEY_STRING);
-    if(statement == NULL){
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "A prepared statement could not be found for putting job records.");
-    }
-    char* str = apr_pstrcat(r->pool, "%/", uuid, NULL);
-    if(apr_dbd_pvquery(dbd->driver, r->pool, dbd->handle, &nrows,
-       statement, status, str) != 0) {
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error for %i, %s", status, str);
-    }
-  }
-  else if(table_num == JOB_TABLE_NUM &&
-          conf->ps_ != NULL && apr_strnatcasecmp(conf->ps_, "On") == 0 &&
-          (status_only == 1 || status_only == 2) && provider != NULL){
-    /* If only the csStatus and providerInfo keys are present, use prepared statement. */
-    apr_dbd_prepared_t* statement = apr_hash_get(dbd->prepared, LABEL3, APR_HASH_KEY_STRING);
-    if(statement == NULL){
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "A prepared statement could not be found for putting job records.");
-    }
-    char* str = apr_pstrcat(r->pool, "%/", uuid, NULL);
-    if(apr_dbd_pvquery(dbd->driver, r->pool, dbd->handle, &nrows,
-       statement, status, provider, str) != 0) {
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error for %i, %s, %s", status, provider, str);
     }
   }
   else{
