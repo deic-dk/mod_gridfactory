@@ -391,7 +391,8 @@ int tokenize_fields_str(request_rec *r, char* fields_str, char** fields, const c
   /* Split the fields on "\t" */
   for(field = apr_strtok(tmp_fields_str, delim, &last); field != NULL;
       field = apr_strtok(NULL, delim, &last)){
-    fields[i] = malloc(MAX_F_SIZE * sizeof(char));
+    //fields[i] = malloc(MAX_F_SIZE * sizeof(char));
+    fields[i] = (char*)apr_pcalloc(r->pool, MAX_F_SIZE * sizeof(char*));
     if(fields[i] == NULL){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Out of memory.");
       return -1;
@@ -450,7 +451,8 @@ char** set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str, char* query){
       return NULL;
     }
     for(i = 0; i < cols; i++){
-    fields[i] = malloc(MAX_F_SIZE * sizeof(char));
+    //fields[i] = malloc(MAX_F_SIZE * sizeof(char));
+    fields[i] = (char*)apr_pcalloc(r->pool, MAX_F_SIZE * sizeof(char*));
       if(fields[i] == NULL){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Out of memory.");
         return NULL;
@@ -809,8 +811,9 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
       ret->res = recs_xml_format(r, dbd, res, priv, table_num);
     }
     
-    // Dont't do this. It causes segfaults...
-    //apr_dbd_close(dbd->driver, dbd->handle);
+    // Dont't do this. It causes segfaults... Well, used to...
+    dbd->pool = NULL;
+    apr_dbd_close(dbd->driver, dbd->handle);
     
     return ret;
 }
@@ -1534,13 +1537,10 @@ static int request_handler(request_rec *r, int uri_len, int table_num) {
       r->allowed = (apr_int64_t) ((1 < M_GET) | (1 < M_PUT));
     }
     
-    /* Causes segfaults... */
-    /*int i;
-    for(i = 0; i < cols; i++){
-      free(fields[i]);
+    if(r->pool){
+      apr_pool_destroy(r->pool);
     }
-    free(fields);
-    free(fields_str);*/
+    free(r);/* non-pool space */
 
     return ok;
 }
@@ -1566,8 +1566,9 @@ static int gridfactory_db_handler(request_rec *r) {
     conf = (config_rec*)ap_get_module_config(r->per_dir_config, &gridfactory_module);
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "handler %s", r->handler);
 
-    if (!r->handler || strcmp(r->handler, "gridfactory"))
+    if (!r->handler || strcmp(r->handler, "gridfactory")){
       return DECLINED;
+    }
     
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "URI: %s", r->uri);
 
