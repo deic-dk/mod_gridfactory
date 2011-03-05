@@ -9,8 +9,7 @@ SRC2 = mod_${MODNAME}.c
 MODFILE2 = mod_${MODNAME}.la
 PKGFILES = ${SRC2} RELEASE README Makefile
 # You may have to set the two variables below manually
-#APXS2=`ls /usr/bin/apxs* /usr/sbin/apxs* 2>/dev/null | head -1`
-APXS2=/usr/local/apache2/bin/apxs
+APXS2=`ls /usr/bin/apxs* /usr/sbin/apxs* 2>/dev/null | head -1`
 APR_VERSION=`apr-1-config --version | sed 's/\.//g'`
 
 default: all
