@@ -76,6 +76,8 @@ module AP_MODULE_DECLARE_DATA authn_dbd_module;
 #define HIST_TABLE_NUM 2
 #define NODE_TABLE_NUM 3
 
+#define MY_POOL_MAX_FREE_SIZE 128
+
 /* Apache environment variable. This is used to get the DN used for authorizing
  * node updates. */
 static const char* CLIENT_S_DN_STRING = "SSL_CLIENT_S_DN";
@@ -267,6 +269,7 @@ typedef struct {
 static void*
 do_config(apr_pool_t* p, char* d)
 {
+  ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "Doing DB config with %s", p);
   dbd_acquire_fn = APR_RETRIEVE_OPTIONAL_FN(ap_dbd_acquire);
   if(dbd_acquire_fn == NULL){
     dbd_acquire_fn = APR_RETRIEVE_OPTIONAL_FN(ap_dbd_acquire);
@@ -379,22 +382,22 @@ typedef struct {
     char* providerInfo;
 } db_result;
 
-int tokenize_fields_str(request_rec *r, char* fields_str, char** fields, const char* delim){
+int tokenize_fields_str(apr_pool_t* p, char* fields_str, char** fields, const char* delim){
 
   char* field;
   char* last;
   int i = 0;
   
   // Use a copy of pub_fields_str (it's modified by the tokenizing)
-  char* tmp_fields_str = (char*)apr_pcalloc(r->pool, 512 * sizeof(char*));
+  char* tmp_fields_str = (char*)apr_pcalloc(p, 512 * sizeof(char*));
   apr_cpystrn(tmp_fields_str, fields_str, strlen(fields_str)+1);
   /* Split the fields on "\t" */
   for(field = apr_strtok(tmp_fields_str, delim, &last); field != NULL;
       field = apr_strtok(NULL, delim, &last)){
     //fields[i] = malloc(MAX_F_SIZE * sizeof(char));
-    fields[i] = (char*)apr_pcalloc(r->pool, MAX_F_SIZE * sizeof(char*));
+    fields[i] = (char*)apr_pcalloc(p, MAX_F_SIZE * sizeof(char*));
     if(fields[i] == NULL){
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Out of memory.");
+      ap_log_perror(APLOG_MARK, APLOG_CRIT, 0, p, "Out of memory.");
       return -1;
     }
     apr_cpystrn(fields[i], field, strlen(field)+1);
@@ -404,12 +407,12 @@ int tokenize_fields_str(request_rec *r, char* fields_str, char** fields, const c
   return i;
 }
 
-char** set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str, char* query){
+char** set_fields(apr_pool_t* p, ap_dbd_t* dbd, char* fields_str, char* query){
   
     apr_status_t rv;
     const char* ret = "";
     // Hmm, does not work. Memory gets overwritten...
-    //fields_str = apr_pcalloc(r->pool, MAX_T_F_SIZE * sizeof(char));
+    //fields_str = apr_pcalloc(p, MAX_T_F_SIZE * sizeof(char));
     /*fields_str = (char*) malloc(MAX_T_F_SIZE * sizeof(char*));
     if(fields_str == NULL){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Out of memory.");
@@ -426,7 +429,7 @@ char** set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str, char* query){
     	first_row_num=0;
     }
     
-    /*ap_dbd_t* dbd = (ap_dbd_t*)apr_pcalloc(r->pool, 256 * sizeof(ap_dbd_t*));
+    /*ap_dbd_t* dbd = (ap_dbd_t*)apr_pcalloc(p, 256 * sizeof(ap_dbd_t*));
     dbd = dbd_acquire_fn(r);
     if(dbd == NULL){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to acquire database connection.");
@@ -434,27 +437,27 @@ char** set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str, char* query){
     }*/
 
     // This crashes with last argument 0 - i.e. only random access works
-    int ret_val = apr_dbd_select(dbd->driver, r->pool, dbd->handle, &res, query, 1);
+    int ret_val = apr_dbd_select(dbd->driver, p, dbd->handle, &res, query, 1);
     if(ret_val != 0){
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error in set_fields, %i.", ret_val);
+        ap_log_perror(APLOG_MARK, APLOG_ERR, 0, p, "Query execution error in set_fields, %i.", ret_val);
         return NULL;
     }
     
     int cols = apr_dbd_num_tuples(dbd->driver, res);
     
     //char** fields = malloc(cols * sizeof(char*));
-    char** fields = (char**)apr_pcalloc(r->pool, cols * sizeof(char*));
+    char** fields = (char**)apr_pcalloc(p, cols * sizeof(char*));
     
     if(fields == NULL){
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+      ap_log_perror(APLOG_MARK, APLOG_ERR, 0, p,
         "Out of memory while allocating %i columns.", cols);
       return NULL;
     }
     for(i = 0; i < cols; i++){
     //fields[i] = malloc(MAX_F_SIZE * sizeof(char));
-    fields[i] = (char*)apr_pcalloc(r->pool, MAX_F_SIZE * sizeof(char*));
+    fields[i] = (char*)apr_pcalloc(p, MAX_F_SIZE * sizeof(char*));
       if(fields[i] == NULL){
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Out of memory.");
+        ap_log_perror(APLOG_MARK, APLOG_ERR, 0, p, "Out of memory.");
         return NULL;
       }
     }
@@ -465,18 +468,18 @@ char** set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str, char* query){
         row = NULL;
         // We have to use last argument 1, ... NOT -1. Only random access works.
         // Older libaprutil1 may start with 0 instead of 1...
-        rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, i+first_row_num);
+        rv = apr_dbd_get_row(dbd->driver, p, res, &row, i+first_row_num);
         if(rv != 0){
-            ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "Error retrieving results");
+            ap_log_perror(APLOG_MARK, APLOG_ERR, rv, p, "Error retrieving results");
             return NULL;
         }
         val = (char*) apr_dbd_get_entry(dbd->driver, row, 0);
         if(firstrow != 0){
-          ret = apr_pstrcat(r->pool, ret, "\t", NULL);
+          ret = apr_pstrcat(p, ret, "\t", NULL);
         }
-        ret = apr_pstrcat(r->pool, ret, val, NULL);
+        ret = apr_pstrcat(p, ret, val, NULL);
         apr_cpystrn(fields[i], val, strlen(val)+1);
-        ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "field --> %s", fields[i]);
+        ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, p, "field --> %s", fields[i]);
         if(apr_strnatcmp(val, ID_COL) == 0){
           id_col_nr = i;
         }
@@ -497,18 +500,18 @@ char** set_fields(request_rec *r, ap_dbd_t* dbd, char* fields_str, char* query){
         /* we can't break out here or row won't get cleaned up */
     }
     /* append the pseudo-column 'dbUrl' */
-    ret = apr_pstrcat(r->pool, ret, "\t", NULL);
-    ret = apr_pstrcat(r->pool, ret, DBURL_COL, NULL);    
+    ret = apr_pstrcat(p, ret, "\t", NULL);
+    ret = apr_pstrcat(p, ret, DBURL_COL, NULL);    
     
     apr_cpystrn(fields_str, ret, strlen(ret)+1);
     
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Found fields: %s; first field: %s", fields_str, fields[0]);
+    ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "Found fields: %s; first field: %s", fields_str, fields[0]);
     
     return fields;
 }
 
-char* constructURL(request_rec* r, char* job_id){
-  ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Constructing URL from %s", job_id);
+char* constructURL(apr_pool_t* p, char* job_id){
+  ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, p, "Constructing URL from %s", job_id);
   char* uuid = memrchr(job_id, '/', strlen(job_id) - 1);
   if(uuid != NULL){
   	uuid = uuid + 1;
@@ -516,12 +519,12 @@ char* constructURL(request_rec* r, char* job_id){
   else{
   	uuid = job_id;
   }
-  char* id = apr_pstrcat(r->pool, base_url, uuid, NULL);
-  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "DB URL: %s + %s -> %s", base_url, uuid, id);
+  char* id = apr_pstrcat(p, base_url, uuid, NULL);
+  ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "DB URL: %s + %s -> %s", base_url, uuid, id);
   return id;
 }
 
-char* recs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
+char* recs_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
    int priv, char* pub_fields_str, char* fields_str, char** fields){
   apr_status_t rv;
   char* val;
@@ -549,12 +552,12 @@ char* recs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
   //while(rownum <= numrows){
   while(1){
     row = NULL;
-    rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
+    rv = apr_dbd_get_row(dbd->driver, p, res, &row, -1);
     if(rv != 0){
       break;
     }
-    recs = apr_pstrcat(r->pool, recs, "\n", NULL);
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "retrieved row %i, cols %i", rownum, cols);
+    recs = apr_pstrcat(p, recs, "\n", NULL);
+    ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "retrieved row %i, cols %i", rownum, cols);
     for(i = 0 ; i < cols ; i++){
       // To check if a field is a member of pub_fields, just see if pub_fields_str contains
       // "\tfield\t".
@@ -562,7 +565,7 @@ char* recs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
       fieldLen = strlen(fields[i]);
       checkStart = checkStr-1;
       checkEnd = checkStr+fieldLen;
-      ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Checking field %s",
+      ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, p, "Checking field %s",
           fields[i]);
       if(priv && checkStr != pub_fields_str && (
         checkStr == NULL ||
@@ -572,26 +575,26 @@ char* recs_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
         continue;
       }
       val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
-      ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "--> %s", val);
-      recs = apr_pstrcat(r->pool, recs, val, NULL);
+      ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, p, "--> %s", val);
+      recs = apr_pstrcat(p, recs, val, NULL);
       if(i == id_col_nr){
-        dbUrl = constructURL(r, val);
+        dbUrl = constructURL(p, val);
       }
-      recs = apr_pstrcat(r->pool, recs, "\t", NULL);
+      recs = apr_pstrcat(p, recs, "\t", NULL);
     }
     /* Append the value for the pseudo-column 'dbUrl'*/
-    recs = apr_pstrcat(r->pool, recs, dbUrl, NULL);
+    recs = apr_pstrcat(p, recs, dbUrl, NULL);
     /* we can't break out here or row won't get cleaned up */
     rownum++;
   }
   
-  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning %i rows", rownum);
-  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "%s", recs);
+  ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "Returning %i rows", rownum);
+  ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "%s", recs);
 
   return recs;
 }
 
-char* recs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
+char* recs_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
    int priv, int table_num){
   apr_status_t rv;
   char* val;
@@ -599,8 +602,8 @@ char* recs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
   int i = 0;
   char* id = "";
   char* recs;
-  char* rec_name = (char*)apr_pcalloc(r->pool, 8 * sizeof(char*));
-  char* list_name = (char*)apr_pcalloc(r->pool, 8 * sizeof(char*));
+  char* rec_name = (char*)apr_pcalloc(p, 8 * sizeof(char*));
+  char* list_name = (char*)apr_pcalloc(p, 8 * sizeof(char*));
   
   switch(table_num){
     case JOB_TABLE_NUM:
@@ -616,57 +619,56 @@ char* recs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
       sprintf(list_name, "nodes");
       break;
     default:
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
+      ap_log_perror(APLOG_MARK, APLOG_ERR, 0, p, "Invalid path: %i", table_num);
   }
 
   recs = "<?xml version=\"1.0\"?>\n<?xml-stylesheet type=\"text/xsl\" href=\"";
-  recs = apr_pstrcat(r->pool, recs, xsl_dir, list_name, ".xsl\"?>\n<", NULL);
-  recs = apr_pstrcat(r->pool, recs, list_name, ">", NULL);
+  recs = apr_pstrcat(p, recs, xsl_dir, list_name, ".xsl\"?>\n<", NULL);
+  recs = apr_pstrcat(p, recs, list_name, ">", NULL);
 
   //int numrows = apr_dbd_num_tuples(dbd->driver,res);
   int cols = apr_dbd_num_cols(dbd->driver,res);
   int rownum = 0;
   while(1){
     row = NULL;
-    rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
+    rv = apr_dbd_get_row(dbd->driver, p, res, &row, -1);
     if (rv != 0) {
       break;
     }
-    recs = apr_pstrcat(r->pool, recs, "\n  <", rec_name, ">", NULL);
-    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "cols: %i, %i, %i", status_col_nr, host_col_nr,
+    recs = apr_pstrcat(p, recs, "\n  <", rec_name, ">", NULL);
+    ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, p, "cols: %i, %i, %i", status_col_nr, host_col_nr,
        subnodes_db_url_col_nr);
     for (i = 0 ; i < cols ; i++) {
       val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
-      ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "%i/%i --> %s", table_num, i, val);
+      ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, p, "%i/%i --> %s", table_num, i, val);
       if(val == NULL){
       	continue;
       }
       if(i == id_col_nr){
         id = val;
-        recs = apr_pstrcat(r->pool, recs, "\n    <", ID_COL, ">", val, "</", ID_COL, ">", NULL);
+        recs = apr_pstrcat(p, recs, "\n    <", ID_COL, ">", val, "</", ID_COL, ">", NULL);
       }
       else if((table_num == JOB_TABLE_NUM || table_num == HIST_TABLE_NUM)  && i == name_col_nr){
-        recs = apr_pstrcat(r->pool, recs, "\n    <", NAME_COL, ">", val, "</", NAME_COL, ">", NULL);
+        recs = apr_pstrcat(p, recs, "\n    <", NAME_COL, ">", val, "</", NAME_COL, ">", NULL);
       }
       else if((table_num == JOB_TABLE_NUM || table_num == HIST_TABLE_NUM)  && i == status_col_nr){
-        recs = apr_pstrcat(r->pool, recs, "\n    <", STATUS_COL, ">", val, "</", STATUS_COL, ">", NULL);
+        recs = apr_pstrcat(p, recs, "\n    <", STATUS_COL, ">", val, "</", STATUS_COL, ">", NULL);
       }
       else if(table_num == NODE_TABLE_NUM && i == host_col_nr){
-        recs = apr_pstrcat(r->pool, recs, "\n    <", HOST_COL, ">", val, "</", HOST_COL, ">", NULL);
+        recs = apr_pstrcat(p, recs, "\n    <", HOST_COL, ">", val, "</", HOST_COL, ">", NULL);
       }
       else if(table_num == NODE_TABLE_NUM && i == subnodes_db_url_col_nr){
-        recs = apr_pstrcat(r->pool, recs, "\n    <", SUBNODES_DB_URL_COL, ">", val, "</", SUBNODES_DB_URL_COL, ">", NULL);
+        recs = apr_pstrcat(p, recs, "\n    <", SUBNODES_DB_URL_COL, ">", val, "</", SUBNODES_DB_URL_COL, ">", NULL);
       }
     }
-    recs = apr_pstrcat(r->pool, recs, "\n    <", DBURL_COL, ">", constructURL(r, id), "</", DBURL_COL, ">", NULL);
-    recs = apr_pstrcat(r->pool, recs, "\n  </", rec_name, "> ", NULL);
+    recs = apr_pstrcat(p, recs, "\n    <", DBURL_COL, ">", constructURL(p, id), "</", DBURL_COL, ">", "\n  </", rec_name, "> ", NULL);
     /* we can't break out here or row won't get cleaned up */
     rownum++;
   }
-  recs = apr_pstrcat(r->pool, recs, "\n</", list_name, "> ", NULL);
+  recs = apr_pstrcat(p, recs, "\n</", list_name, "> ", NULL);
   
-  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning rows");
-  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "%s", recs);
+  ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "Returning rows");
+  ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "%s", recs);
 
   return recs;
 }
@@ -677,7 +679,7 @@ char* recs_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t *res,
  * Setting the switch 'priv' to 1 turns on privacy. Privacy means that only the fields of
  * 'pub_fields' are shown.
  */
-db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
+db_result* get_recs(request_rec* r, apr_pool_t* p, db_result* ret, int priv, int table_num){
     apr_dbd_results_t *res = NULL;
     char* last;
     char* last1;
@@ -687,12 +689,12 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
     int start = -1;
     int end = -1;
     ret->format = 0;
-    char* query = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
-    char* fields_str = (char*)apr_pcalloc(r->pool, 512 * sizeof(char*));
+    char* query = (char*)apr_pcalloc(p, 256 * sizeof(char*));
+    char* fields_str = (char*)apr_pcalloc(p, 512 * sizeof(char*));
     char** fields;
-    char* pub_fields_str = (char*)apr_pcalloc(r->pool, 512 * sizeof(char*));
-    char* fields_query = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
-    char** pub_fields = (char**)apr_pcalloc(r->pool, 256 * sizeof(char**));    
+    char* pub_fields_str = (char*)apr_pcalloc(p, 512 * sizeof(char*));
+    char* fields_query = (char*)apr_pcalloc(p, 256 * sizeof(char*));
+    char** pub_fields = (char**)apr_pcalloc(p, 256 * sizeof(char**));    
     
     //apr_cpystrn(query, JOB_RECS_SELECT_Q, strlen(JOB_RECS_SELECT_Q)+1);
     switch(table_num){
@@ -712,10 +714,10 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
         apr_cpystrn(pub_fields_str, NODE_PUB_FIELDS_STR, strlen(NODE_PUB_FIELDS_STR)+1);
         break;
       default:
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s --> %i", r->uri, table_num);
+        ap_log_perror(APLOG_MARK, APLOG_ERR, 0, p, "Invalid path: %i --> %s", table_num, r->uri);
     }
 
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Query0: %s", query);
+    ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "Query0: %s", query);
     
     /* For URLs like
      * GET /db/jobs/?format=text|xml&csStatus=ready|requested|running&...
@@ -746,7 +748,7 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
         else if(apr_strnatcmp(subtoken1, START_STR) != 0 && apr_strnatcmp(subtoken1, END_STR) != 0){
           subtoken2 = strtok_r(NULL, "=", &last1);
           ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "subtoken2: %s", subtoken2);
-          query = apr_pstrcat(r->pool, query, " WHERE ", subtoken1, " = '", subtoken2, "'", NULL);
+          query = apr_pstrcat(p, query, " WHERE ", subtoken1, " = '", subtoken2, "'", NULL);
         }
         else if(apr_strnatcmp(subtoken1, START_STR) == 0){
           subtoken2 = strtok_r(NULL, "=", &last1);
@@ -764,10 +766,10 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
         return NULL;
       }
       else if(start >= 0 && end >= 0){
-        query = apr_pstrcat(r->pool, query, " LIMIT ", apr_itoa(r->pool, start), ",", apr_itoa(r->pool, end - start +1), NULL);
+        query = apr_pstrcat(p, query, " LIMIT ", apr_itoa(p, start), ",", apr_itoa(p, end - start +1), NULL);
       }
       else if(start < 0 && end >= 0){
-        query = apr_pstrcat(r->pool, query, " LIMIT ", apr_itoa(r->pool, end +1), NULL);
+        query = apr_pstrcat(p, query, " LIMIT ", apr_itoa(p, end +1), NULL);
       }
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Query: %s", query);
     }
@@ -778,25 +780,25 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
 
    /* If outputting text, set fields. Be ware, after select,
       results MUST be traversed before another select can be done. */
-    ap_dbd_t* dbd = (ap_dbd_t*)apr_pcalloc(r->pool, 256 * sizeof(ap_dbd_t*));
+    ap_dbd_t* dbd = (ap_dbd_t*)apr_pcalloc(p, sizeof(ap_dbd_t*));
     dbd = dbd_acquire_fn(r);
     if(dbd == NULL){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to acquire database connection.");
         return NULL;
     }
-    if((fields=set_fields(r, dbd, fields_str, fields_query))==NULL){
+    if((fields=set_fields(p, dbd, fields_str, fields_query))==NULL){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to set fields.");
       return NULL;
     }
     if(ret->format == TEXT_FORMAT){
-      if(tokenize_fields_str(r, pub_fields_str, pub_fields, "\t") < 0 && priv){
+      if(tokenize_fields_str(p, pub_fields_str, pub_fields, "\t") < 0 && priv){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to set public fields.");
         return NULL;
       }
     }
 
     /* Now do the query */
-    if(apr_dbd_select(dbd->driver, r->pool, dbd->handle, &res, query, 0) != 0){
+    if(apr_dbd_select(dbd->driver, p, dbd->handle, &res, query, 0) != 0){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error in get_recs.");
       return NULL;
     }
@@ -804,31 +806,31 @@ db_result* get_recs(request_rec* r, db_result* ret, int priv, int table_num){
     // format result
     if(ret->format == TEXT_FORMAT){
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning text");
-      ret->res = recs_text_format(r, dbd, res, priv, pub_fields_str, fields_str, fields);
+      ret->res = recs_text_format(p, dbd, res, priv, pub_fields_str, fields_str, fields);
     }
     else if(ret->format == XML_FORMAT){
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning XML");
-      ret->res = recs_xml_format(r, dbd, res, priv, table_num);
+      ret->res = recs_xml_format(p, dbd, res, priv, table_num);
     }
     
-    // Dont't do this. It causes segfaults... Well, used to...
-    dbd->pool = NULL;
-    apr_dbd_close(dbd->driver, dbd->handle);
+    // Dont't do this. It causes segfaults...
+    //dbd->pool = NULL;
+    //apr_dbd_close(dbd->driver, dbd->handle);
     
     return ret;
 }
 
-void get_rec_s(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
+void get_rec_s(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
    char* uuid, char* query){
-  char* my_query = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
+  char* my_query = (char*)apr_pcalloc(p, 256 * sizeof(char*));
   snprintf(my_query, strlen(query)+strlen(uuid)-1, query, uuid);
-  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Query: %s", my_query);
-  if(apr_dbd_select(dbd->driver, r->pool, dbd->handle, &res, my_query, 0) != 0){
-    ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error in get_rec_s.");
+  ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "Query: %s", my_query);
+  if(apr_dbd_select(dbd->driver, p, dbd->handle, &res, my_query, 0) != 0){
+    ap_log_perror(APLOG_MARK, APLOG_ERR, 0, p, "Query execution error in get_rec_s.");
   }
 }
 
-void get_rec_ps(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
+void get_rec_ps(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
    char* uuid, int table_num){
 
     apr_dbd_prepared_t* statement;
@@ -837,33 +839,33 @@ void get_rec_ps(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
     switch(table_num){
       case JOB_TABLE_NUM:
         statement = apr_hash_get(dbd->prepared, LABEL, APR_HASH_KEY_STRING);
-        str = apr_pstrcat(r->pool, "%", uuid, NULL);
+        str = apr_pstrcat(p, "%", uuid, NULL);
         break;
       case HIST_TABLE_NUM:
         statement = apr_hash_get(dbd->prepared, LABEL2, APR_HASH_KEY_STRING);
-        str = apr_pstrcat(r->pool, "/%", uuid, NULL);
+        str = apr_pstrcat(p, "/%", uuid, NULL);
         break;
       case NODE_TABLE_NUM:
         statement = apr_hash_get(dbd->prepared, LABEL3, APR_HASH_KEY_STRING);
-        str = apr_pstrcat(r->pool, "/%", uuid, NULL);
+        str = apr_pstrcat(p, "/%", uuid, NULL);
         break;
       default:
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
+        ap_log_perror(APLOG_MARK, APLOG_ERR, 0, p, "Invalid path: %i", table_num);
     }
 
     if(statement == NULL){
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+        ap_log_perror(APLOG_MARK, APLOG_ERR, 0, p,
                       "A prepared statement could not be found for getting job records.");
     }
     
-    if(apr_dbd_pvselect(dbd->driver, r->pool, dbd->handle, &res, statement,
+    if(apr_dbd_pvselect(dbd->driver, p, dbd->handle, &res, statement,
                               0, str, NULL) != 0) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+        ap_log_perror(APLOG_MARK, APLOG_ERR, 0, p,
                       "Query execution error looking up '%s' in database", uuid);
     }
 }
 
-void rec_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
+void rec_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
    db_result* ret, char** fields){
 
     apr_dbd_row_t* row;
@@ -878,20 +880,20 @@ void rec_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
     int rownum = 0;
     while(1){
       row = NULL;
-      rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
+      rv = apr_dbd_get_row(dbd->driver, p, res, &row, -1);
       if(rv != 0){
          break;
       }
       if(firstrow != 0){
-        rec = apr_pstrcat(r->pool, rec, "\n\n", NULL);
+        rec = apr_pstrcat(p, rec, "\n\n", NULL);
       }
       for(i = 0 ; i < cols ; i++){
         val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
-        ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "--> %s", val);
+        ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "--> %s", val);
         if(i > 0){
-          rec = apr_pstrcat(r->pool, rec, "\n", NULL);
+          rec = apr_pstrcat(p, rec, "\n", NULL);
         }
-        rec = apr_pstrcat(r->pool, rec, fields[i], ": ", val, NULL);
+        rec = apr_pstrcat(p, rec, fields[i], ": ", val, NULL);
         // Set res.status
         if(strcmp(fields[i], STATUS_COL) == 0 && val != NULL){
           ret->status = val;
@@ -906,8 +908,8 @@ void rec_text_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
       /* we can't break out here or row won't get cleaned up */
     }
     
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning record:");
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "%s", rec);
+    ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "Returning record:");
+    ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "%s", rec);
     
     ret->res = rec;
 }
@@ -936,43 +938,43 @@ static int is_out_file_mapping_field(char* field){
 	return 0;
 }
 
-static char* list_xml_format(request_rec *r, char* val, char* sub_field){
-  char** fields = (char**)apr_pcalloc(r->pool, 256 * sizeof(char**));
+static char* list_xml_format(apr_pool_t* p, char* val, char* sub_field){
+  char** fields = (char**)apr_pcalloc(p, 256 * sizeof(char**));
   char* tmp_val = "";
-	int cols = tokenize_fields_str(r, val, fields, " ");
+	int cols = tokenize_fields_str(p, val, fields, " ");
 	int i;
 	for(i = 0 ; i < cols ; i++){
-		tmp_val = apr_pstrcat(r->pool, tmp_val, "\n    <", sub_field, ">", fields[i],
+		tmp_val = apr_pstrcat(p, tmp_val, "\n    <", sub_field, ">", fields[i],
 		   "</", sub_field, ">", NULL);
 	}
-	tmp_val = apr_pstrcat(r->pool, tmp_val, "\n  ", NULL);
+	tmp_val = apr_pstrcat(p, tmp_val, "\n  ", NULL);
 	return tmp_val;
 }
 
-static char* out_file_map_format(request_rec *r, char* val){
-  char** fields = (char**)apr_pcalloc(r->pool, 256 * sizeof(char**));
+static char* out_file_map_format(apr_pool_t* p, char* val){
+  char** fields = (char**)apr_pcalloc(p, 256 * sizeof(char**));
   char* tmp_val = "";
   int i;
-	int cols = tokenize_fields_str(r, val, fields, " ");
+	int cols = tokenize_fields_str(p, val, fields, " ");
 	for(i = 0 ; i < cols ; i = i + 2){
-		tmp_val = apr_pstrcat(r->pool, tmp_val, "\n    <source>", fields[i],
+		tmp_val = apr_pstrcat(p, tmp_val, "\n    <source>", fields[i],
 		   "</source>", "<destination>", fields[i+1], "</destination>", NULL);
 	}
-	tmp_val = apr_pstrcat(r->pool, tmp_val, "\n  ", NULL);
+	tmp_val = apr_pstrcat(p, tmp_val, "\n  ", NULL);
 	return tmp_val;
 }
 
-void rec_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
+void rec_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
    db_result* ret, char** fields, char* rec_name){
 
     apr_dbd_row_t* row;
     apr_status_t rv;
-    char* val = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
-    char* sub_field = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
+    char* val = (char*)apr_pcalloc(p, 256 * sizeof(char*));
+    char* sub_field = (char*)apr_pcalloc(p, 256 * sizeof(char*));
     int i;
     int firstrow = 0;
     char* rec = "<?xml version=\"1.0\"?>\n<?xml-stylesheet type=\"text/xsl\" href=\"";
-    rec = apr_pstrcat(r->pool, rec, xsl_dir, rec_name, ".xsl\"?>\n<", rec_name, ">", NULL);
+    rec = apr_pstrcat(p, rec, xsl_dir, rec_name, ".xsl\"?>\n<", rec_name, ">", NULL);
     char* tmp_val;
     
     int numrows = apr_dbd_num_tuples(dbd->driver,res);
@@ -980,30 +982,30 @@ void rec_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
     int rownum = 0;
     while(1){
       row = NULL;
-      rv = apr_dbd_get_row(dbd->driver, r->pool, res, &row, -1);
+      rv = apr_dbd_get_row(dbd->driver, p, res, &row, -1);
       if(rv != 0){
          break;
       }
       if(firstrow != 0){
-        rec = apr_pstrcat(r->pool, rec, "\n\n", NULL);
+        rec = apr_pstrcat(p, rec, "\n\n", NULL);
       }
       for(i = 0 ; i < cols ; i++){
         val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
-        ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "--> %s", val);
+        ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "--> %s", val);
         if(val && strcmp(val, "") != 0){
         	// Format allowedVOs, hypervisors, inputFileURLs, runtimeEnvironments
         	if(is_list_field(fields[i])){
         		apr_cpystrn(sub_field, fields[i], strlen(fields[i]));
-            tmp_val = list_xml_format(r, val, sub_field);
+            tmp_val = list_xml_format(p, val, sub_field);
         	}
         	// Format outFileMapping
         	else if(is_out_file_mapping_field(fields[i])){
-        		tmp_val = out_file_map_format(r, val);
+        		tmp_val = out_file_map_format(p, val);
         	}
         	else{
         		tmp_val = val;
         	}
-          rec = apr_pstrcat(r->pool, rec, "\n  <", fields[i], ">", tmp_val,
+          rec = apr_pstrcat(p, rec, "\n  <", fields[i], ">", tmp_val,
              "</", fields[i], ">", NULL);
         }
         // Set res.status
@@ -1019,10 +1021,10 @@ void rec_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
       rownum++;
       /* we can't break out here or row won't get cleaned up */
     }
-    rec = apr_pstrcat(r->pool, rec, "\n</", rec_name, "> ", NULL);
+    rec = apr_pstrcat(p, rec, "\n</", rec_name, "> ", NULL);
     
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Returning record:");
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "%s", rec);
+    ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "Returning record:");
+    ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "%s", rec);
     
     ret->res = rec;
 
@@ -1031,7 +1033,7 @@ void rec_xml_format(request_rec *r, ap_dbd_t* dbd, apr_dbd_results_t* res,
 /**
  * Get job definition, job history or node information record - which is determined by 'query'.
  */
-void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
+void get_rec(apr_pool_t* p, request_rec *r, char* uuid, db_result* ret, int table_num){
   
     char* token;
     char* subtoken1;
@@ -1039,11 +1041,11 @@ void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
     char* last;
     char* last1;
     ret->format = 0;
-    char* query = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
-    char* fields_str = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
-    char* fields_query = (char*)apr_pcalloc(r->pool, 256 * sizeof(char*));
+    char* query = (char*)apr_pcalloc(p, 256 * sizeof(char*));
+    char* fields_str = (char*)apr_pcalloc(p, 256 * sizeof(char*));
+    char* fields_query = (char*)apr_pcalloc(p, 256 * sizeof(char*));
     char** fields;
-    char* rec_name = (char*)apr_pcalloc(r->pool, 8 * sizeof(char*));
+    char* rec_name = (char*)apr_pcalloc(p, 8 * sizeof(char*));
     
     switch(table_num){
       case JOB_TABLE_NUM:
@@ -1067,7 +1069,7 @@ void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
     }
 
-    apr_dbd_results_t* dbres = (apr_dbd_results_t*)apr_pcalloc(r->pool, 5120);  
+    apr_dbd_results_t* dbres = (apr_dbd_results_t*)apr_pcalloc(p, 5120);  
     //apr_dbd_results_t* res = NULL;
   
     ap_dbd_t* dbd = dbd_acquire_fn(r);
@@ -1076,7 +1078,7 @@ void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
         return;
     }
     
-    if((fields=set_fields(r, dbd, fields_str, fields_query))==NULL){
+    if((fields=set_fields(p, dbd, fields_str, fields_query))==NULL){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to get fields.");
       return;
     }
@@ -1085,11 +1087,11 @@ void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
     if(conf->ps_ == NULL ||
       apr_strnatcasecmp(conf->ps_, "On") != 0){
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "PrepareStatements not enabled, %s.", conf->ps_);
-      get_rec_s(r, dbd, dbres, uuid, query);
+      get_rec_s(p, dbd, dbres, uuid, query);
     }
     else{
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "PrepareStatements enabled, %s.", conf->ps_);
-      get_rec_ps(r, dbd, dbres, uuid, table_num);
+      get_rec_ps(p, dbd, dbres, uuid, table_num);
     }
     
     if(dbres == NULL){
@@ -1123,10 +1125,10 @@ void get_rec(request_rec *r, char* uuid, db_result* ret, int table_num){
       }
     }
     if(ret->format == 0){
-      rec_text_format(r, dbd, dbres, ret, fields);
+      rec_text_format(p, dbd, dbres, ret, fields);
     }
     else if(ret->format == 1){
-      rec_xml_format(r, dbd, dbres, ret, fields, rec_name);
+      rec_xml_format(p, dbd, dbres, ret, fields, rec_name);
     }
     
     ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Returning:");
@@ -1148,7 +1150,7 @@ void ltrim( char * string, char * trim )
 
 /* From The Apache Modules Book. */
 /* Parse PUT text data from a string. The input string is NOT preserved. */
-static apr_hash_t* parse_put_from_string(request_rec* r, char* args){
+static apr_hash_t* parse_put_from_string(apr_pool_t* p, char* args){
   apr_hash_t* tbl;
   char* pair;
   char* eq;
@@ -1160,7 +1162,7 @@ static apr_hash_t* parse_put_from_string(request_rec* r, char* args){
     return NULL;
   }
   
-  tbl = apr_hash_make(r->pool);
+  tbl = apr_hash_make(p);
   
   /* Split the input on "\n" */
   for(pair = apr_strtok(args, delim, &last); pair != NULL;
@@ -1181,16 +1183,16 @@ static apr_hash_t* parse_put_from_string(request_rec* r, char* args){
     }
     ltrim(pair, " ");
     ap_unescape_url(pair);
-    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "key: %s", pair);
-    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "value: %s", eq);
-    apr_hash_set(tbl, pair, APR_HASH_KEY_STRING, apr_pstrdup(r->pool, eq));
+    ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, p, "key: %s", pair);
+    ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, p, "value: %s", eq);
+    apr_hash_set(tbl, pair, APR_HASH_KEY_STRING, apr_pstrdup(p, eq));
     
   }
   return tbl;
 }
 
 /* From The Apache Modules Book. */
-static int parse_input_from_put(request_rec* r, apr_hash_t **form){
+static int parse_input_from_put(apr_pool_t* p, request_rec* r, apr_hash_t **form){
   int bytes, eos;
   apr_size_t count;
   apr_status_t rv;
@@ -1213,8 +1215,8 @@ static int parse_input_from_put(request_rec* r, apr_hash_t **form){
   
   ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Buffer size: %d bytes", bytes);
   
-  bb = apr_brigade_create(r->pool, r->connection->bucket_alloc);
-  bbin = apr_brigade_create(r->pool, r->connection->bucket_alloc);
+  bb = apr_brigade_create(p, r->connection->bucket_alloc);
+  bbin = apr_brigade_create(p, r->connection->bucket_alloc);
   count = 0;
   
   do{
@@ -1254,38 +1256,38 @@ static int parse_input_from_put(request_rec* r, apr_hash_t **form){
   }
   
   /* Put the data in a buffer and parse it. */
-  buf = apr_palloc(r->pool, count + 1);
+  buf = apr_palloc(p, count + 1);
   rv = apr_brigade_flatten(bb, buf, &count);
   if(rv != APR_SUCCESS){
     ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Error (flatten) reading form data.");
     return HTTP_INTERNAL_SERVER_ERROR;
   }
   buf[count] = '\0';
-  *form = parse_put_from_string(r, buf);
+  *form = parse_put_from_string(p, buf);
   
   return OK;
   
 }
 
-char* mk_sql_key_values(request_rec *r, apr_hash_t *ht) {
+char* mk_sql_key_values(apr_pool_t* p, apr_hash_t *ht) {
 	char* tmp_query = "";
   apr_hash_index_t *hi;
   void *val;
   const void *key;
-  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Adding key/value pairs to query %s", tmp_query);
-  for(hi = apr_hash_first(r->pool, ht); hi; hi = apr_hash_next(hi)){
+  ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "Adding key/value pairs to query %s", tmp_query);
+  for(hi = apr_hash_first(p, ht); hi; hi = apr_hash_next(hi)){
     apr_hash_this(hi, &key, NULL, &val);
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "%s --> %s", (char *) key, (char *) val);
-    tmp_query = apr_pstrcat(r->pool, tmp_query, ", ", key, " = '", val, "'", NULL);
+    ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "%s --> %s", (char *) key, (char *) val);
+    tmp_query = apr_pstrcat(p, tmp_query, ", ", key, " = '", val, "'", NULL);
   }
   return tmp_query;
 }
 
-int update_rec(request_rec *r, char* uuid, int table_num) {
+int update_rec(apr_pool_t* p, request_rec *r, char* uuid, int table_num) {
   
   /* Read and parse the data. */
   apr_hash_t* put_data = NULL;
-  int status = parse_input_from_put(r, &put_data);
+  int status = parse_input_from_put(p, r, &put_data);
   if(status != OK){
      ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Error reading request body.");
      return status;
@@ -1300,10 +1302,10 @@ int update_rec(request_rec *r, char* uuid, int table_num) {
   
   switch(table_num){
     case JOB_TABLE_NUM:
-         update_query = apr_pstrcat(r->pool, update_query, JOB_REC_UPDATE_Q, NULL);
+         update_query = apr_pstrcat(p, update_query, JOB_REC_UPDATE_Q, NULL);
          break;
     case NODE_TABLE_NUM:
-         update_query = apr_pstrcat(r->pool, update_query, NODE_REC_UPDATE_Q, NULL);
+         update_query = apr_pstrcat(p, update_query, NODE_REC_UPDATE_Q, NULL);
          break;
     default:
          ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
@@ -1336,8 +1338,8 @@ int update_rec(request_rec *r, char* uuid, int table_num) {
       status_only = 2;
     }
     if(apr_strnatcmp(k, LASTMODIFIED_COL) != 0){
-      update_query = apr_pstrcat(r->pool, update_query, ", ", ap_escape_html(r->pool, k), " = '",
-                        ap_escape_html(r->pool, v), "'", NULL);
+      update_query = apr_pstrcat(p, update_query, ", ", ap_escape_html(p, k), " = '",
+                        ap_escape_html(p, v), "'", NULL);
     }
   }
   
@@ -1345,8 +1347,8 @@ int update_rec(request_rec *r, char* uuid, int table_num) {
      changing only lastModified, check if the job status starts with 'ready';
      if it does, decline. */
   if(table_num == JOB_TABLE_NUM && status_only == 2){
-    select_query = apr_pstrcat(r->pool, select_query, JOB_REC_SELECT_Q, NULL);
-    get_rec(r, uuid, &ret, table_num);
+    select_query = apr_pstrcat(p, select_query, JOB_REC_SELECT_Q, NULL);
+    get_rec(p, r, uuid, &ret, table_num);
     if(&ret != NULL && ret.status && strlen(ret.status)>0 && strstr(READY, ret.status) != NULL){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
          "For %s jobs, only changing csStatus, nodeId and providerInfo is allowed. %i --> %s",
@@ -1356,8 +1358,8 @@ int update_rec(request_rec *r, char* uuid, int table_num) {
   }
   /* If someone is trying to update a nodeInformation record they did not create, decline. */
   else if(table_num == NODE_TABLE_NUM){
-    select_query = apr_pstrcat(r->pool, select_query, NODE_REC_SELECT_Q, NULL);
-    get_rec(r, uuid, &ret, table_num);
+    select_query = apr_pstrcat(p, select_query, NODE_REC_SELECT_Q, NULL);
+    get_rec(p, r, uuid, &ret, table_num);
     if(&ret != NULL){
     	// Get the client DN
       request_rec* subreq = ap_sub_req_lookup_file("/dev/null", r, 0);
@@ -1386,8 +1388,8 @@ int update_rec(request_rec *r, char* uuid, int table_num) {
     if(statement == NULL){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "A prepared statement could not be found for putting job records.");
     }
-    char* str = apr_pstrcat(r->pool, "%/", uuid, NULL);
-    if(apr_dbd_pvquery(dbd->driver, r->pool, dbd->handle, &nrows,
+    char* str = apr_pstrcat(p, "%/", uuid, NULL);
+    if(apr_dbd_pvquery(dbd->driver, p, dbd->handle, &nrows,
        statement, str) != 0) {
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error for %s.", str);
     }
@@ -1397,15 +1399,15 @@ int update_rec(request_rec *r, char* uuid, int table_num) {
     // If a nodeInformation record does not exist, create it.
     if(table_num == NODE_TABLE_NUM){
       if(strcmp(ret.res, "") == 0){
-        update_query = apr_pstrcat(r->pool, NODE_REC_INSERT_Q,
-           mk_sql_key_values(r, put_data), NULL);
+        update_query = apr_pstrcat(p, NODE_REC_INSERT_Q,
+           mk_sql_key_values(p, put_data), NULL);
       }
       else{
-        update_query = apr_pstrcat(r->pool, update_query, " WHERE ", ID_COL, " = '", uuid, "'", NULL);     
+        update_query = apr_pstrcat(p, update_query, " WHERE ", ID_COL, " = '", uuid, "'", NULL);     
       }
     }
     else{
-      update_query = apr_pstrcat(r->pool, update_query, " WHERE ", ID_COL, " LIKE '%/", uuid, "'", NULL);     
+      update_query = apr_pstrcat(p, update_query, " WHERE ", ID_COL, " LIKE '%/", uuid, "'", NULL);     
     }
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Query: %s", update_query);
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Provider: %s", provider);
@@ -1452,6 +1454,19 @@ static int fixup_path(request_rec *r)
   return OK;
 }
 
+static int cleanup_pool(apr_pool_t* p, request_rec *r){
+  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "cleaning up pool");
+  /*apr_allocator_t* pa = apr_pool_allocator_get(p);
+  apr_allocator_destroy(pa);
+  apr_status_t rv = apr_pool_create(&p, r->server->process->pool);
+  if (rv != APR_SUCCESS) {
+    ap_log_rerror(APLOG_MARK, APLOG_CRIT, rv, r, "Failed to create subpool for gridfactory_module");
+    return;
+  }*/
+  //apr_pool_destroy(p);
+  apr_pool_clear(p);
+}
+
 static int request_handler(request_rec *r, int uri_len, int table_num) {
 
     int ok = OK;
@@ -1460,6 +1475,17 @@ static int request_handler(request_rec *r, int uri_len, int table_num) {
     int hist_dir_len = strlen(HIST_DIR);
     int node_dir_len = strlen(NODE_DIR);
     db_result ret = {0, "", ""};
+    //db_result* ret = (db_result*)apr_pcalloc(r->pool, sizeof(db_result*));
+    
+    // Create a memory pool for this session
+    apr_pool_t *p;
+    apr_status_t rv = apr_pool_create(&p, r->server->process->pool);
+    if (rv != APR_SUCCESS) {
+      ap_log_rerror(APLOG_MARK, APLOG_CRIT, rv, r, "Failed to create subpool for gridfactory_module");
+      return;
+    }
+    apr_allocator_t* pa = apr_pool_allocator_get(p);
+    apr_allocator_max_free_set(pa, MY_POOL_MAX_FREE_SIZE);
 
     ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "entering request_handler");
     /* GET */
@@ -1468,8 +1494,8 @@ static int request_handler(request_rec *r, int uri_len, int table_num) {
          apr_strnatcmp((r->uri) + uri_len - hist_dir_len, HIST_DIR) == 0 ||
          apr_strnatcmp((r->uri) + uri_len - node_dir_len, NODE_DIR) == 0){
         /* GET /db/jobs|history|nodes/?... */
-        get_recs(r, &ret, PRIVATE, table_num);
-      }    
+        get_recs(r, p, &ret, PRIVATE, table_num);
+      }
       /* GET /db/jobs|history|nodes/UUID */
       else if((table_num == JOB_TABLE_NUM && uri_len > job_dir_len) ||
               (table_num == NODE_TABLE_NUM && uri_len > node_dir_len) ||
@@ -1482,9 +1508,10 @@ static int request_handler(request_rec *r, int uri_len, int table_num) {
         this_uuid = memrchr(r->uri, '/', uri_len);
         apr_cpystrn(this_uuid, this_uuid+1 , uri_len - 1);
         ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "this_uuid --> %s", this_uuid);
-        get_rec(r, this_uuid, &ret, table_num);
+        get_rec(p, r, this_uuid, &ret, table_num);
       }
       else{
+        cleanup_pool(p, r);
         return DECLINED;
       }
       
@@ -1497,6 +1524,7 @@ static int request_handler(request_rec *r, int uri_len, int table_num) {
         ap_rputs(ret.res, r);
       }
       else{
+        cleanup_pool(p, r);
         return DECLINED;
       } 
     }
@@ -1509,7 +1537,7 @@ static int request_handler(request_rec *r, int uri_len, int table_num) {
      */
     else if(r->method_number == M_PUT){
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "PUT %s", r->uri);
-      char* tmpstr = (char*)apr_pcalloc(r->pool, sizeof(char*) * 256);
+      char* tmpstr = (char*)apr_pcalloc(p, sizeof(char*) * 256);
       switch(table_num){
         case JOB_TABLE_NUM:
           apr_cpystrn(tmpstr, strstr(r->uri, JOB_DIR), job_dir_len + 1);
@@ -1519,29 +1547,27 @@ static int request_handler(request_rec *r, int uri_len, int table_num) {
           break;
         default:
           ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
+	  cleanup_pool(p, r);
           return DECLINED;
       }
       if(!((table_num == JOB_TABLE_NUM && strcmp(JOB_DIR, tmpstr) == 0) ||
          (table_num == HIST_TABLE_NUM && strcmp(HIST_DIR, tmpstr) == 0) ||
          (table_num == NODE_TABLE_NUM && strcmp(NODE_DIR, tmpstr) == 0))) {
-         	return DECLINED;
-      }     	
+	cleanup_pool(p, r);
+        return DECLINED;
+      }
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Check: %s", tmpstr);
       this_uuid = memrchr(r->uri, '/', uri_len);
       apr_cpystrn(this_uuid, this_uuid+1 , uri_len - 1);
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "this_uuid --> %s", this_uuid);
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Content type: %s", r->content_type);
-      ok = update_rec(r, this_uuid, table_num);
+      ok = update_rec(p, r, this_uuid, table_num);
     }
     else{
       r->allowed = (apr_int64_t) ((1 < M_GET) | (1 < M_PUT));
     }
     
-    if(r->pool){
-      apr_pool_destroy(r->pool);
-    }
-    free(r);/* non-pool space */
-
+    cleanup_pool(p, r);
     return ok;
 }
 
@@ -1645,15 +1671,18 @@ static int gridfactory_db_handler(request_rec *r) {
     
     // Now delegate to either job_handler, hist_handler or node_handler
     
-    return request_handler(r, uri_len, table_num);
+    int ret = request_handler(r, uri_len, table_num);
+
+    return ret;
 }
 
 static void register_hooks(apr_pool_t *p)
 {
   static const char * const fixupSucc[] = { "mod_dir.c", NULL };
-
+  
   ap_hook_handler(gridfactory_db_handler, NULL, NULL, APR_HOOK_MIDDLE);
   ap_hook_fixups(fixup_path, NULL, fixupSucc, APR_HOOK_LAST);
+
 }
 
 module AP_MODULE_DECLARE_DATA gridfactory_module =
