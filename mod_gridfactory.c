@@ -213,8 +213,14 @@ static int MAX_F_SIZE = 256;
 /* Max size of all field names. */
 static int MAX_T_F_SIZE = 5120;
 
-/* Max size (bytes) of response and PUT bodies. */
-static int MAX_SIZE = 100000;
+/* Max size (bytes) of response and PUT bodies.
+ * This is to protect against memory leaking.
+ * Notice that it should be MAX_SELECT_ROWS * [longest expected row]*/
+static int MAX_SIZE = 1000000;
+
+/* Max number of rows that we will return from a DB query.
+ * This is to protect against memory leaking of the parsing functions. */
+static int MAX_SELECT_ROWS = 10000;
 
 /* Whether or not to operate in private mode (1 = private). */
 static int PRIVATE = 1;
@@ -510,7 +516,7 @@ char** set_fields(apr_pool_t* p, ap_dbd_t* dbd, char* fields_str, char* query){
     return fields;
 }
 
-char* constructURL(apr_pool_t* p, char* job_id){
+char* constructUUID(apr_pool_t* p, char* job_id){
   ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, p, "Constructing URL from %s", job_id);
   char* uuid = memrchr(job_id, '/', strlen(job_id) - 1);
   if(uuid != NULL){
@@ -519,9 +525,7 @@ char* constructURL(apr_pool_t* p, char* job_id){
   else{
   	uuid = job_id;
   }
-  char* id = apr_pstrcat(p, base_url, uuid, NULL);
-  ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "DB URL: %s + %s -> %s", base_url, uuid, id);
-  return id;
+  return uuid;
 }
 
 char* recs_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
@@ -530,33 +534,33 @@ char* recs_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
   char* val;
   apr_dbd_row_t* row;
   int i = 0;
-  char* dbUrl = "";
-  char* recs;
+  char* uuid = "";
   char* checkStr;
   char* checkStart;
   char* checkEnd;
   int fieldLen;
+  char* recs = malloc(MAX_SIZE);
   
   int cols = apr_dbd_num_cols(dbd->driver,res);
   // Works only for synchronous selects (1 instead of 0)
   //int numrows = apr_dbd_num_tuples(dbd->driver,res);
 
   if(priv){
-    recs = pub_fields_str;
+    strcpy(recs, pub_fields_str);
   }
   else{
-    recs = fields_str;
+    strcpy(recs, fields_str);
   }
   
   int rownum = 0;
   //while(rownum <= numrows){
-  while(1){
+  while(rownum<MAX_SELECT_ROWS){
     row = NULL;
     rv = apr_dbd_get_row(dbd->driver, p, res, &row, -1);
     if(rv != 0){
       break;
     }
-    recs = apr_pstrcat(p, recs, "\n", NULL);
+    strcat(recs, "\n");
     ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "retrieved row %i, cols %i", rownum, cols);
     for(i = 0 ; i < cols ; i++){
       // To check if a field is a member of pub_fields, just see if pub_fields_str contains
@@ -576,22 +580,28 @@ char* recs_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
       }
       val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
       ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, p, "--> %s", val);
-      recs = apr_pstrcat(p, recs, val, NULL);
+      strcat(recs, val);
+      strcat(recs, "\t");
       if(i == id_col_nr){
-        dbUrl = constructURL(p, val);
+        uuid = constructUUID(p, val);
       }
-      recs = apr_pstrcat(p, recs, "\t", NULL);
     }
-    /* Append the value for the pseudo-column 'dbUrl'*/
-    recs = apr_pstrcat(p, recs, dbUrl, NULL);
+    strcat(recs, base_url);
+    strcat(recs, uuid);
     /* we can't break out here or row won't get cleaned up */
     rownum++;
+  }
+  if(rownum>=MAX_SELECT_ROWS-1){
+    ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, p, "WARNING: max number of rows reached by recs_text_format.");
   }
   
   ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "Returning %i rows", rownum);
   ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "%s", recs);
 
-  return recs;
+  char* ret = (char*)apr_pcalloc(p, strlen(recs) * sizeof(char*));
+  apr_cpystrn(ret, recs, strlen(recs)+1);
+  free(recs);
+  return ret;
 }
 
 char* recs_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
@@ -601,7 +611,7 @@ char* recs_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
   apr_dbd_row_t* row;
   int i = 0;
   char* id = "";
-  char* recs;
+  char* recs = malloc(MAX_SIZE);
   char* rec_name = (char*)apr_pcalloc(p, 8 * sizeof(char*));
   char* list_name = (char*)apr_pcalloc(p, 8 * sizeof(char*));
   
@@ -622,20 +632,25 @@ char* recs_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
       ap_log_perror(APLOG_MARK, APLOG_ERR, 0, p, "Invalid path: %i", table_num);
   }
 
-  recs = "<?xml version=\"1.0\"?>\n<?xml-stylesheet type=\"text/xsl\" href=\"";
-  recs = apr_pstrcat(p, recs, xsl_dir, list_name, ".xsl\"?>\n<", NULL);
-  recs = apr_pstrcat(p, recs, list_name, ">", NULL);
+  strcpy(recs, "<?xml version=\"1.0\"?>\n<?xml-stylesheet type=\"text/xsl\" href=\"");
+  strcat(recs, xsl_dir);
+  strcat(recs, list_name);
+  strcat(recs, ".xsl\"?>\n<");
+  strcat(recs, list_name);
+  strcat(recs, ">");
 
   //int numrows = apr_dbd_num_tuples(dbd->driver,res);
   int cols = apr_dbd_num_cols(dbd->driver,res);
   int rownum = 0;
-  while(1){
+  while(rownum<MAX_SELECT_ROWS){
     row = NULL;
     rv = apr_dbd_get_row(dbd->driver, p, res, &row, -1);
     if (rv != 0) {
       break;
     }
-    recs = apr_pstrcat(p, recs, "\n  <", rec_name, ">", NULL);
+    strcat(recs, "\n  <");
+    strcat(recs, rec_name);
+    strcat(recs, ">");
     ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, p, "cols: %i, %i, %i", status_col_nr, host_col_nr,
        subnodes_db_url_col_nr);
     for (i = 0 ; i < cols ; i++) {
@@ -646,31 +661,78 @@ char* recs_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
       }
       if(i == id_col_nr){
         id = val;
-        recs = apr_pstrcat(p, recs, "\n    <", ID_COL, ">", val, "</", ID_COL, ">", NULL);
+        strcat(recs, "\n    <");
+        strcat(recs, ID_COL);
+        strcat(recs, ">");
+        strcat(recs, val);
+        strcat(recs, "</");
+        strcat(recs, ID_COL);
+        strcat(recs, ">");
       }
       else if((table_num == JOB_TABLE_NUM || table_num == HIST_TABLE_NUM)  && i == name_col_nr){
-        recs = apr_pstrcat(p, recs, "\n    <", NAME_COL, ">", val, "</", NAME_COL, ">", NULL);
+        strcat(recs, "\n    <");
+        strcat(recs, NAME_COL);
+        strcat(recs, ">");
+        strcat(recs, val);
+        strcat(recs, "</");
+        strcat(recs, NAME_COL);
+        strcat(recs, ">");
       }
       else if((table_num == JOB_TABLE_NUM || table_num == HIST_TABLE_NUM)  && i == status_col_nr){
-        recs = apr_pstrcat(p, recs, "\n    <", STATUS_COL, ">", val, "</", STATUS_COL, ">", NULL);
+        strcat(recs, "\n    <");
+        strcat(recs, STATUS_COL);
+        strcat(recs, ">");
+        strcat(recs,  val);
+        strcat(recs, "</");
+        strcat(recs, STATUS_COL);
+        strcat(recs, ">");
       }
       else if(table_num == NODE_TABLE_NUM && i == host_col_nr){
-        recs = apr_pstrcat(p, recs, "\n    <", HOST_COL, ">", val, "</", HOST_COL, ">", NULL);
+        strcat(recs, "\n    <");
+        strcat(recs, HOST_COL);
+        strcat(recs, ">");
+        strcat(recs, val);
+        strcat(recs, "</");
+        strcat(recs, HOST_COL);
+        strcat(recs, ">");
       }
       else if(table_num == NODE_TABLE_NUM && i == subnodes_db_url_col_nr){
-        recs = apr_pstrcat(p, recs, "\n    <", SUBNODES_DB_URL_COL, ">", val, "</", SUBNODES_DB_URL_COL, ">", NULL);
+        strcat(recs, "\n    <");
+        strcat(recs, SUBNODES_DB_URL_COL);
+        strcat(recs, ">");
+        strcat(recs, val);
+        strcat(recs, "</");
+        strcat(recs, SUBNODES_DB_URL_COL);
+        strcat(recs, ">");
       }
     }
-    recs = apr_pstrcat(p, recs, "\n    <", DBURL_COL, ">", constructURL(p, id), "</", DBURL_COL, ">", "\n  </", rec_name, "> ", NULL);
-    /* we can't break out here or row won't get cleaned up */
+    strcat(recs, "\n    <");
+    strcat(recs, DBURL_COL);
+    strcat(recs, ">");
+    strcat(recs, base_url);
+    strcat(recs, constructUUID(p, id));
+    strcat(recs, "</");
+    strcat(recs, DBURL_COL);
+    strcat(recs, ">");
+    strcat(recs, "\n  </");
+    strcat(recs, rec_name);
+    strcat(recs, "> ");
     rownum++;
   }
-  recs = apr_pstrcat(p, recs, "\n</", list_name, "> ", NULL);
+  if(rownum>=MAX_SELECT_ROWS-1){
+   ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, p, "WARNING: max number of rows reached by recs_xml_format.");
+  }
+  strcat(recs, "\n</");
+  strcat(recs, list_name);
+  strcat(recs, "> ");
   
   ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "Returning rows");
   ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "%s", recs);
 
-  return recs;
+  char* ret = (char*)apr_pcalloc(p, strlen(recs) * sizeof(char*));
+  apr_cpystrn(ret, recs, strlen(recs)+1);
+  free(recs);
+  return ret;
 }
 
 /**
@@ -780,7 +842,7 @@ db_result* get_recs(request_rec* r, apr_pool_t* p, db_result* ret, int priv, int
 
    /* If outputting text, set fields. Be ware, after select,
       results MUST be traversed before another select can be done. */
-    ap_dbd_t* dbd = (ap_dbd_t*)apr_pcalloc(p, sizeof(ap_dbd_t*));
+    ap_dbd_t* dbd;// = (ap_dbd_t*)apr_pcalloc(p, sizeof(ap_dbd_t*));
     dbd = dbd_acquire_fn(r);
     if(dbd == NULL){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to acquire database connection.");
@@ -878,7 +940,7 @@ void rec_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
     int numrows = apr_dbd_num_tuples(dbd->driver,res);
     int cols = apr_dbd_num_cols(dbd->driver,res);
     int rownum = 0;
-    while(1){
+    while(rownum<MAX_SELECT_ROWS){
       row = NULL;
       rv = apr_dbd_get_row(dbd->driver, p, res, &row, -1);
       if(rv != 0){
@@ -906,6 +968,9 @@ void rec_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
       firstrow = -1;
       rownum++;
       /* we can't break out here or row won't get cleaned up */
+    }
+    if(rownum>=MAX_SELECT_ROWS-1){
+    	ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, p, "WARNING: max number of rows reached by rec_text_format.");
     }
     
     ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "Returning record:");
@@ -980,7 +1045,7 @@ void rec_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
     int numrows = apr_dbd_num_tuples(dbd->driver,res);
     int cols = apr_dbd_num_cols(dbd->driver,res);
     int rownum = 0;
-    while(1){
+    while(rownum<MAX_SELECT_ROWS){
       row = NULL;
       rv = apr_dbd_get_row(dbd->driver, p, res, &row, -1);
       if(rv != 0){
@@ -1021,6 +1086,10 @@ void rec_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
       rownum++;
       /* we can't break out here or row won't get cleaned up */
     }
+    if(rownum>=MAX_SELECT_ROWS-1){
+    	ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, p, "WARNING: max number of rows reached by rec_xml_format.");
+    }
+    
     rec = apr_pstrcat(p, rec, "\n</", rec_name, "> ", NULL);
     
     ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "Returning record:");
@@ -1069,7 +1138,7 @@ void get_rec(apr_pool_t* p, request_rec *r, char* uuid, db_result* ret, int tabl
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
     }
 
-    apr_dbd_results_t* dbres = (apr_dbd_results_t*)apr_pcalloc(p, 5120);  
+    apr_dbd_results_t* dbres = (apr_dbd_results_t*)apr_pcalloc(p, sizeof(apr_dbd_results_t*));  
     //apr_dbd_results_t* res = NULL;
   
     ap_dbd_t* dbd = dbd_acquire_fn(r);
@@ -1124,10 +1193,10 @@ void get_rec(apr_pool_t* p, request_rec *r, char* uuid, db_result* ret, int tabl
         }
       }
     }
-    if(ret->format == 0){
+    if(ret->format == TEXT_FORMAT){
       rec_text_format(p, dbd, dbres, ret, fields);
     }
-    else if(ret->format == 1){
+    else if(ret->format == XML_FORMAT){
       rec_xml_format(p, dbd, dbres, ret, fields, rec_name);
     }
     
@@ -1454,20 +1523,7 @@ static int fixup_path(request_rec *r)
   return OK;
 }
 
-static int cleanup_pool(apr_pool_t* p, request_rec *r){
-  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "cleaning up pool");
-  /*apr_allocator_t* pa = apr_pool_allocator_get(p);
-  apr_allocator_destroy(pa);
-  apr_status_t rv = apr_pool_create(&p, r->server->process->pool);
-  if (rv != APR_SUCCESS) {
-    ap_log_rerror(APLOG_MARK, APLOG_CRIT, rv, r, "Failed to create subpool for gridfactory_module");
-    return;
-  }*/
-  //apr_pool_destroy(p);
-  apr_pool_clear(p);
-}
-
-static int request_handler(request_rec *r, int uri_len, int table_num) {
+static int request_handler(apr_pool_t *p, request_rec *r, int uri_len, int table_num) {
 
     int ok = OK;
     char* this_uuid;
@@ -1477,16 +1533,6 @@ static int request_handler(request_rec *r, int uri_len, int table_num) {
     db_result ret = {0, "", ""};
     //db_result* ret = (db_result*)apr_pcalloc(r->pool, sizeof(db_result*));
     
-    // Create a memory pool for this session
-    apr_pool_t *p;
-    apr_status_t rv = apr_pool_create(&p, r->server->process->pool);
-    if (rv != APR_SUCCESS) {
-      ap_log_rerror(APLOG_MARK, APLOG_CRIT, rv, r, "Failed to create subpool for gridfactory_module");
-      return;
-    }
-    apr_allocator_t* pa = apr_pool_allocator_get(p);
-    apr_allocator_max_free_set(pa, MY_POOL_MAX_FREE_SIZE);
-
     ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "entering request_handler");
     /* GET */
     if(r->method_number == M_GET){
@@ -1511,8 +1557,7 @@ static int request_handler(request_rec *r, int uri_len, int table_num) {
         get_rec(p, r, this_uuid, &ret, table_num);
       }
       else{
-        cleanup_pool(p, r);
-        return DECLINED;
+         ok = DECLINED;
       }
       
       if(ret.format == 0){
@@ -1524,8 +1569,7 @@ static int request_handler(request_rec *r, int uri_len, int table_num) {
         ap_rputs(ret.res, r);
       }
       else{
-        cleanup_pool(p, r);
-        return DECLINED;
+        ok = DECLINED;
       } 
     }
     /* PUT /db/jobs/UUID */
@@ -1547,14 +1591,12 @@ static int request_handler(request_rec *r, int uri_len, int table_num) {
           break;
         default:
           ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid path: %s", r->uri);
-	  cleanup_pool(p, r);
-          return DECLINED;
+          ok = DECLINED;
       }
       if(!((table_num == JOB_TABLE_NUM && strcmp(JOB_DIR, tmpstr) == 0) ||
          (table_num == HIST_TABLE_NUM && strcmp(HIST_DIR, tmpstr) == 0) ||
          (table_num == NODE_TABLE_NUM && strcmp(NODE_DIR, tmpstr) == 0))) {
-	cleanup_pool(p, r);
-        return DECLINED;
+        ok = DECLINED;
       }
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Check: %s", tmpstr);
       this_uuid = memrchr(r->uri, '/', uri_len);
@@ -1567,7 +1609,6 @@ static int request_handler(request_rec *r, int uri_len, int table_num) {
       r->allowed = (apr_int64_t) ((1 < M_GET) | (1 < M_PUT));
     }
     
-    cleanup_pool(p, r);
     return ok;
 }
 
@@ -1584,6 +1625,17 @@ static int gridfactory_db_handler(request_rec *r) {
     char* main_path;
     // This is set to 1, 2 or 3 in each of the above cases
     int table_num = 0;
+    
+    // Create a memory pool for this session
+    apr_pool_t *p;
+    apr_status_t rv = apr_pool_create(&p, r->connection->pool);
+    if (rv != APR_SUCCESS) {
+      ap_log_rerror(APLOG_MARK, APLOG_CRIT, rv, r, "Failed to create subpool for gridfactory_module");
+      return -1;
+    }
+    //apr_allocator_t* pa = apr_pool_allocator_get(p);
+    //apr_allocator_max_free_set(pa, MY_POOL_MAX_FREE_SIZE);
+    //apr_pool_cleanup_register(r->connection->pool, p, (const void*) cleanup_pool, apr_pool_cleanup_null);
 
     if (r->per_dir_config == NULL) {
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "directory for mod_gridfactory is null. Maybe your config is missing a Directory directive.");
@@ -1598,15 +1650,15 @@ static int gridfactory_db_handler(request_rec *r) {
     
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "URI: %s", r->uri);
 
-    base_path = (char*)apr_pcalloc(r->pool, sizeof(char*) * 256);
-    main_path = (char*)apr_pcalloc(r->pool, sizeof(char*) * 256);
+    base_path = (char*)apr_pcalloc(p, sizeof(char*) * 256);
+    main_path = (char*)apr_pcalloc(p, sizeof(char*) * 256);
     apr_cpystrn(base_path, r->uri, uri_len + 1);
     path_end = strstr(base_path, JOB_DIR);
     if(path_end != NULL){
       table_num = JOB_TABLE_NUM;
       apr_cpystrn(main_path, JOB_DIR, strlen(JOB_DIR)+1);
       apr_cpystrn(base_path, base_path, uri_len - strlen(path_end) + 1);
-      tmp_url = apr_pstrcat(r->pool, tmp_url, base_path, JOB_DIR, NULL);
+      tmp_url = apr_pstrcat(p, tmp_url, base_path, JOB_DIR, NULL);
     }
     if(table_num == 0){
       path_end = strstr(base_path, HIST_DIR);
@@ -1614,7 +1666,7 @@ static int gridfactory_db_handler(request_rec *r) {
         table_num = HIST_TABLE_NUM;
         apr_cpystrn(main_path, HIST_DIR, strlen(HIST_DIR)+1);
         apr_cpystrn(base_path, base_path, uri_len - strlen(path_end) + 1);
-        tmp_url = apr_pstrcat(r->pool, tmp_url, base_path, HIST_DIR, NULL);
+        tmp_url = apr_pstrcat(p, tmp_url, base_path, HIST_DIR, NULL);
       }
     }
     if(table_num == 0){
@@ -1623,7 +1675,7 @@ static int gridfactory_db_handler(request_rec *r) {
         table_num = NODE_TABLE_NUM;
         apr_cpystrn(main_path, NODE_DIR, strlen(NODE_DIR)+1);
         apr_cpystrn(base_path, base_path , uri_len - strlen(path_end) + 1);
-        tmp_url = apr_pstrcat(r->pool, tmp_url, base_path, NODE_DIR, NULL);
+        tmp_url = apr_pstrcat(p, tmp_url, base_path, NODE_DIR, NULL);
       }
     }
     /**
@@ -1635,19 +1687,19 @@ static int gridfactory_db_handler(request_rec *r) {
      * With this, base_url will be set to one of
      * https://this.server/db/jobs/, https://this.server/db/history/, https://this.server/db/nodes/ 
      */
-    base_url = (char*)apr_pcalloc(r->pool, sizeof(char*) * 256);
+    base_url = (char*)apr_pcalloc(p, sizeof(char*) * 256);
     if(conf->url_ == NULL || strcmp(conf->url_, "") == 0){
-      tmp_url = apr_pstrcat(r->pool, "https://", r->server->server_hostname, NULL);
+      tmp_url = apr_pstrcat(p, "https://", r->server->server_hostname, NULL);
       if(r->server->port && r->server->port != 443){
-        tmp_url = apr_pstrcat(r->pool, tmp_url, ":", apr_itoa(r->pool, r->server->port), NULL);
+        tmp_url = apr_pstrcat(p, tmp_url, ":", apr_itoa(p, r->server->port), NULL);
       }
-      base_url = apr_pstrcat(r->pool, tmp_url, base_path, main_path, NULL);
+      base_url = apr_pstrcat(p, tmp_url, base_path, main_path, NULL);
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "DB base URL not set, defaulting base_url to %s, %s, %s",
         base_url, base_path, r->uri);
     }
     else{
       apr_cpystrn(base_url, conf->url_, strlen(conf->url_)+1);
-      base_url = apr_pstrcat(r->pool, base_url, main_path, NULL);
+      base_url = apr_pstrcat(p, base_url, main_path, NULL);
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "DB base URL set to %s. Setting base_url to %s", conf->url_, base_url);
     }
     
@@ -1655,7 +1707,7 @@ static int gridfactory_db_handler(request_rec *r) {
      * If XSLDirURL was not set in the preferences, default to
      * ../../gridfactory/xsl/.
      */
-    xsl_dir = (char*)apr_pcalloc(r->pool, sizeof(char*) * 256);
+    xsl_dir = (char*)apr_pcalloc(p, sizeof(char*) * 256);
     if(conf->xsl_ == NULL || strcmp(conf->xsl_, "") == 0){
       tmp_url = "/gridfactory/xsl/";
       apr_cpystrn(xsl_dir, tmp_url, strlen(tmp_url)+1);
@@ -1671,7 +1723,13 @@ static int gridfactory_db_handler(request_rec *r) {
     
     // Now delegate to either job_handler, hist_handler or node_handler
     
-    int ret = request_handler(r, uri_len, table_num);
+    int ret = request_handler(p, r, uri_len, table_num);
+    
+	  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "cleaning up pool");
+	  //ap_dbd_t* dbd = dbd_acquire_fn(r);
+	  //apr_pool_destroy(dbd->pool);
+    apr_pool_destroy(p);
+    //apr_pool_clear(r->connection->pool);
 
     return ret;
 }
