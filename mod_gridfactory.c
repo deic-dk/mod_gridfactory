@@ -275,7 +275,9 @@ typedef struct {
 static void*
 do_config(apr_pool_t* p, char* d)
 {
-  ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "Doing DB config with %s", p);
+	/* Apparently ap_log_perror only works for log levels higher than APLOG_INFO,
+	   i.e. not with APLOG_INFO and APLOG_DEBUG. */
+  //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Doing DB config with %s", p);
   dbd_acquire_fn = APR_RETRIEVE_OPTIONAL_FN(ap_dbd_acquire);
   if(dbd_acquire_fn == NULL){
     dbd_acquire_fn = APR_RETRIEVE_OPTIONAL_FN(ap_dbd_acquire);
@@ -485,7 +487,7 @@ char** set_fields(apr_pool_t* p, ap_dbd_t* dbd, char* fields_str, char* query){
         }
         ret = apr_pstrcat(p, ret, val, NULL);
         apr_cpystrn(fields[i], val, strlen(val)+1);
-        ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, p, "field --> %s", fields[i]);
+        //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "field --> %s", fields[i]);
         if(apr_strnatcmp(val, ID_COL) == 0){
           id_col_nr = i;
         }
@@ -511,13 +513,13 @@ char** set_fields(apr_pool_t* p, ap_dbd_t* dbd, char* fields_str, char* query){
     
     apr_cpystrn(fields_str, ret, strlen(ret)+1);
     
-    ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "Found fields: %s; first field: %s", fields_str, fields[0]);
+    //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Found fields: %s; first field: %s", fields_str, fields[0]);
     
     return fields;
 }
 
 char* constructUUID(apr_pool_t* p, char* job_id){
-  ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, p, "Constructing URL from %s", job_id);
+  //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Constructing URL from %s", job_id);
   char* uuid = memrchr(job_id, '/', strlen(job_id) - 1);
   if(uuid != NULL){
   	uuid = uuid + 1;
@@ -561,7 +563,7 @@ char* recs_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
       break;
     }
     strcat(recs, "\n");
-    ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "retrieved row %i, cols %i", rownum, cols);
+    ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "retrieved row %i, cols %i", rownum, cols);
     for(i = 0 ; i < cols ; i++){
       // To check if a field is a member of pub_fields, just see if pub_fields_str contains
       // "\tfield\t".
@@ -569,7 +571,7 @@ char* recs_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
       fieldLen = strlen(fields[i]);
       checkStart = checkStr-1;
       checkEnd = checkStr+fieldLen;
-      ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, p, "Checking field %s",
+      ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Checking field %s",
           fields[i]);
       if(priv && checkStr != pub_fields_str && (
         checkStr == NULL ||
@@ -579,7 +581,7 @@ char* recs_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
         continue;
       }
       val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
-      ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, p, "--> %s", val);
+      ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "--> %s", val);
       strcat(recs, val);
       strcat(recs, "\t");
       if(i == id_col_nr){
@@ -595,8 +597,8 @@ char* recs_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
     ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, p, "WARNING: max number of rows reached by recs_text_format.");
   }
   
-  ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "Returning %i rows", rownum);
-  ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "%s", recs);
+  ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Returning %i rows", rownum);
+  ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "%s", recs);
 
   char* ret = (char*)apr_pcalloc(p, strlen(recs) * sizeof(char*));
   apr_cpystrn(ret, recs, strlen(recs)+1);
@@ -651,11 +653,10 @@ char* recs_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
     strcat(recs, "\n  <");
     strcat(recs, rec_name);
     strcat(recs, ">");
-    ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, p, "cols: %i, %i, %i", status_col_nr, host_col_nr,
-       subnodes_db_url_col_nr);
+    //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "cols: %i, %i, %i", status_col_nr, host_col_nr, subnodes_db_url_col_nr);
     for (i = 0 ; i < cols ; i++) {
       val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
-      ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, p, "%i/%i --> %s", table_num, i, val);
+      //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "%i/%i --> %s", table_num, i, val);
       if(val == NULL){
       	continue;
       }
@@ -726,8 +727,8 @@ char* recs_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
   strcat(recs, list_name);
   strcat(recs, "> ");
   
-  ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "Returning rows");
-  ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "%s", recs);
+  //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Returning rows");
+  //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "%s", recs);
 
   char* ret = (char*)apr_pcalloc(p, strlen(recs) * sizeof(char*));
   apr_cpystrn(ret, recs, strlen(recs)+1);
@@ -779,7 +780,7 @@ db_result* get_recs(request_rec* r, apr_pool_t* p, db_result* ret, int priv, int
         ap_log_perror(APLOG_MARK, APLOG_ERR, 0, p, "Invalid path: %i --> %s", table_num, r->uri);
     }
 
-    ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "Query0: %s", query);
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Query0: %s", query);
     
     /* For URLs like
      * GET /db/jobs/?format=text|xml&csStatus=ready|requested|running&...
@@ -886,7 +887,7 @@ void get_rec_s(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
    char* uuid, char* query){
   char* my_query = (char*)apr_pcalloc(p, 256 * sizeof(char*));
   snprintf(my_query, strlen(query)+strlen(uuid)-1, query, uuid);
-  ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "Query: %s", my_query);
+  //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Query: %s", my_query);
   if(apr_dbd_select(dbd->driver, p, dbd->handle, &res, my_query, 0) != 0){
     ap_log_perror(APLOG_MARK, APLOG_ERR, 0, p, "Query execution error in get_rec_s.");
   }
@@ -951,7 +952,7 @@ void rec_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
       }
       for(i = 0 ; i < cols ; i++){
         val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
-        ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "--> %s", val);
+        //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "--> %s", val);
         if(i > 0){
           rec = apr_pstrcat(p, rec, "\n", NULL);
         }
@@ -973,8 +974,8 @@ void rec_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
     	ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, p, "WARNING: max number of rows reached by rec_text_format.");
     }
     
-    ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "Returning record:");
-    ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "%s", rec);
+    //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Returning record:");
+    //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "%s", rec);
     
     ret->res = rec;
 }
@@ -1056,7 +1057,7 @@ void rec_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
       }
       for(i = 0 ; i < cols ; i++){
         val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
-        ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "--> %s", val);
+        //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "--> %s", val);
         if(val && strcmp(val, "") != 0){
         	// Format allowedVOs, hypervisors, inputFileURLs, runtimeEnvironments
         	if(is_list_field(fields[i])){
@@ -1092,8 +1093,8 @@ void rec_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
     
     rec = apr_pstrcat(p, rec, "\n</", rec_name, "> ", NULL);
     
-    ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "Returning record:");
-    ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "%s", rec);
+    //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Returning record:");
+    //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "%s", rec);
     
     ret->res = rec;
 
@@ -1252,8 +1253,8 @@ static apr_hash_t* parse_put_from_string(apr_pool_t* p, char* args){
     }
     ltrim(pair, " ");
     ap_unescape_url(pair);
-    ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, p, "key: %s", pair);
-    ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, p, "value: %s", eq);
+    //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "key: %s", pair);
+    //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "value: %s", eq);
     apr_hash_set(tbl, pair, APR_HASH_KEY_STRING, apr_pstrdup(p, eq));
     
   }
@@ -1343,10 +1344,10 @@ char* mk_sql_key_values(apr_pool_t* p, apr_hash_t *ht) {
   apr_hash_index_t *hi;
   void *val;
   const void *key;
-  ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "Adding key/value pairs to query %s", tmp_query);
+  //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Adding key/value pairs to query %s", tmp_query);
   for(hi = apr_hash_first(p, ht); hi; hi = apr_hash_next(hi)){
     apr_hash_this(hi, &key, NULL, &val);
-    ap_log_perror(APLOG_MARK, APLOG_INFO, 0, p, "%s --> %s", (char *) key, (char *) val);
+    //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "%s --> %s", (char *) key, (char *) val);
     tmp_query = apr_pstrcat(p, tmp_query, ", ", key, " = '", val, "'", NULL);
   }
   return tmp_query;
