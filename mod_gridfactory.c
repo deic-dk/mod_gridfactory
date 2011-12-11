@@ -216,7 +216,7 @@ static int MAX_T_F_SIZE = 5120;
 /* Max size (bytes) of response and PUT bodies.
  * This is to protect against memory leaking.
  * Notice that it should be MAX_SELECT_ROWS * [longest expected row]*/
-static int MAX_SIZE = 1000000;
+static int MAX_SIZE = 10000000;
 
 /* Max number of rows that we will return from a DB query.
  * This is to protect against memory leaking of the parsing functions. */
@@ -546,6 +546,8 @@ char* recs_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
   int cols = apr_dbd_num_cols(dbd->driver,res);
   // Works only for synchronous selects (1 instead of 0)
   //int numrows = apr_dbd_num_tuples(dbd->driver,res);
+  
+  int pub_check[cols];
 
   if(priv){
     strcpy(recs, pub_fields_str);
@@ -563,25 +565,31 @@ char* recs_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
       break;
     }
     strcat(recs, "\n");
-    ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "retrieved row %i, cols %i", rownum, cols);
+    //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "retrieved row %i, cols %i", rownum, cols);
     for(i = 0 ; i < cols ; i++){
       // To check if a field is a member of pub_fields, just see if pub_fields_str contains
       // "\tfield\t".
-      checkStr = strstr(pub_fields_str, fields[i]);
-      fieldLen = strlen(fields[i]);
-      checkStart = checkStr-1;
-      checkEnd = checkStr+fieldLen;
-      ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Checking field %s",
-          fields[i]);
-      if(priv && checkStr != pub_fields_str && (
-        checkStr == NULL ||
-        checkStart != NULL && *checkStart != '\t' ||
-        checkEnd != NULL && *checkEnd != '\t'
-        )){
-        continue;
+      if(rownum>0 && !pub_check[i]){
+      	continue;
+      }
+      if(rownum==0){
+	      checkStr = strstr(pub_fields_str, fields[i]);
+	      fieldLen = strlen(fields[i]);
+	      checkStart = checkStr-1;
+	      checkEnd = checkStr+fieldLen;
+	      //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Checking field %s", fields[i]);
+	      if(priv && checkStr != pub_fields_str && (
+	        checkStr == NULL ||
+	        checkStart != NULL && *checkStart != '\t' ||
+	        checkEnd != NULL && *checkEnd != '\t'
+	        )){
+	        pub_check[i] = 0;
+	        continue;
+	      }
+	      pub_check[i] = 1;
       }
       val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
-      ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "--> %s", val);
+      //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "--> %s", val);
       strcat(recs, val);
       strcat(recs, "\t");
       if(i == id_col_nr){
@@ -597,8 +605,8 @@ char* recs_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
     ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, p, "WARNING: max number of rows reached by recs_text_format.");
   }
   
-  ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Returning %i rows", rownum);
-  ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "%s", recs);
+  //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Returning %i rows", rownum);
+  //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "%s", recs);
 
   char* ret = (char*)apr_pcalloc(p, strlen(recs) * sizeof(char*));
   apr_cpystrn(ret, recs, strlen(recs)+1);
