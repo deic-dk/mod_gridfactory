@@ -1402,11 +1402,11 @@ int update_rec(apr_pool_t* p, request_rec *r, char* uuid, int table_num) {
      1 -> only csStatus, nodeId or providerInfo to be updated,
      2 -> other than csStatus, nodeId or providerInfo to be updated. */
   int status_only = 0;
-  const char *k = NULL;
-  const char *v = NULL;
+  const char *k;
+  const char *v;
   for(index = apr_hash_first(NULL, put_data);
      index; index = apr_hash_next(index)){
-    apr_hash_this(index, &k, NULL, &v);
+    apr_hash_this(index, (const char**)&k, NULL, (char**)&v);
     if(status_only == 0 && (apr_strnatcmp(k, STATUS_COL) == 0 ||
        apr_strnatcmp(k, NODEID_COL) == 0 ||
        apr_strnatcmp(k, PROVIDERINFO_COL) == 0)){
