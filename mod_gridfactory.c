@@ -530,6 +530,11 @@ char* constructUUID(apr_pool_t* p, char* job_id){
   return uuid;
 }
 
+// From http://stackoverflow.com/questions/2674312/how-to-append-strings-using-sprintf
+int bytes_added( int result_of_sprintf ){
+    return (result_of_sprintf > 0) ? result_of_sprintf : 0;
+}
+
 char* recs_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
    int priv, char* pub_fields_str, char* fields_str, char** fields){
   apr_status_t rv;
@@ -557,6 +562,7 @@ char* recs_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
   }
   
   int rownum = 0;
+  int length = strlen(recs);
   //while(rownum <= numrows){
   while(rownum<MAX_SELECT_ROWS){
     row = NULL;
@@ -564,7 +570,7 @@ char* recs_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
     if(rv != 0){
       break;
     }
-    strcat(recs, "\n");
+    length += bytes_added(sprintf(recs+length, "%s", "\n"));
     //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "retrieved row %i, cols %i", rownum, cols);
     for(i = 0 ; i < cols ; i++){
       // To check if a field is a member of pub_fields, just see if pub_fields_str contains
@@ -590,14 +596,14 @@ char* recs_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
       }
       val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
       //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "--> %s", val);
-      strcat(recs, val);
-      strcat(recs, "\t");
+      length += bytes_added(sprintf(recs+length, "%s", val));
+      length += bytes_added(sprintf(recs+length, "%s", "\t"));
       if(i == id_col_nr){
         uuid = constructUUID(p, val);
       }
     }
-    strcat(recs, base_url);
-    strcat(recs, uuid);
+    length += bytes_added(sprintf(recs+length, "%s", base_url));
+    length += bytes_added(sprintf(recs+length, "%s", uuid));
     /* we can't break out here or row won't get cleaned up */
     rownum++;
   }
@@ -643,12 +649,12 @@ char* recs_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
   }
 
   strcpy(recs, "<?xml version=\"1.0\"?>\n<?xml-stylesheet type=\"text/xsl\" href=\"");
-  strcat(recs, xsl_dir);
-  strcat(recs, list_name);
-  strcat(recs, ".xsl\"?>\n<");
-  strcat(recs, list_name);
-  strcat(recs, ">");
-
+  int length = strlen(recs);
+  length += bytes_added(sprintf(recs+length, "%s", xsl_dir));
+  length += bytes_added(sprintf(recs+length, "%s", list_name));
+  length += bytes_added(sprintf(recs+length, "%s", ".xsl\"?>\n<"));
+  length += bytes_added(sprintf(recs+length, "%s", list_name));
+  length += bytes_added(sprintf(recs+length, "%s", ">"));
   //int numrows = apr_dbd_num_tuples(dbd->driver,res);
   int cols = apr_dbd_num_cols(dbd->driver,res);
   int rownum = 0;
@@ -658,9 +664,9 @@ char* recs_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
     if (rv != 0) {
       break;
     }
-    strcat(recs, "\n  <");
-    strcat(recs, rec_name);
-    strcat(recs, ">");
+    length += bytes_added(sprintf(recs+length, "%s", "\n  <"));
+    length += bytes_added(sprintf(recs+length, "%s", rec_name));
+    length += bytes_added(sprintf(recs+length, "%s", ">"));
     //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "cols: %i, %i, %i", status_col_nr, host_col_nr, subnodes_db_url_col_nr);
     for (i = 0 ; i < cols ; i++) {
       val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
@@ -670,70 +676,70 @@ char* recs_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
       }
       if(i == id_col_nr){
         id = val;
-        strcat(recs, "\n    <");
-        strcat(recs, ID_COL);
-        strcat(recs, ">");
-        strcat(recs, val);
-        strcat(recs, "</");
-        strcat(recs, ID_COL);
-        strcat(recs, ">");
+        length += bytes_added(sprintf(recs+length, "%s", "\n    <"));
+        length += bytes_added(sprintf(recs+length, "%s", ID_COL));
+        length += bytes_added(sprintf(recs+length, "%s", ">"));
+        length += bytes_added(sprintf(recs+length, "%s", val));
+        length += bytes_added(sprintf(recs+length, "%s", "</"));
+        length += bytes_added(sprintf(recs+length, "%s", ID_COL));
+        length += bytes_added(sprintf(recs+length, "%s", ">"));
       }
       else if((table_num == JOB_TABLE_NUM || table_num == HIST_TABLE_NUM)  && i == name_col_nr){
-        strcat(recs, "\n    <");
-        strcat(recs, NAME_COL);
-        strcat(recs, ">");
-        strcat(recs, val);
-        strcat(recs, "</");
-        strcat(recs, NAME_COL);
-        strcat(recs, ">");
+        length += bytes_added(sprintf(recs+length, "%s", "\n    <"));
+        length += bytes_added(sprintf(recs+length, "%s", NAME_COL));
+        length += bytes_added(sprintf(recs+length, "%s", ">"));
+        length += bytes_added(sprintf(recs+length, "%s", val));
+        length += bytes_added(sprintf(recs+length, "%s", "</"));
+        length += bytes_added(sprintf(recs+length, "%s", NAME_COL));
+        length += bytes_added(sprintf(recs+length, "%s", ">"));
       }
       else if((table_num == JOB_TABLE_NUM || table_num == HIST_TABLE_NUM)  && i == status_col_nr){
-        strcat(recs, "\n    <");
-        strcat(recs, STATUS_COL);
-        strcat(recs, ">");
-        strcat(recs,  val);
-        strcat(recs, "</");
-        strcat(recs, STATUS_COL);
-        strcat(recs, ">");
+        length += bytes_added(sprintf(recs+length, "%s", "\n    <"));
+        length += bytes_added(sprintf(recs+length, "%s", STATUS_COL));
+        length += bytes_added(sprintf(recs+length, "%s", ">"));
+        length += bytes_added(sprintf(recs+length, "%s", val));
+        length += bytes_added(sprintf(recs+length, "%s", "</"));
+        length += bytes_added(sprintf(recs+length, "%s", STATUS_COL));
+        length += bytes_added(sprintf(recs+length, "%s", ">"));
       }
       else if(table_num == NODE_TABLE_NUM && i == host_col_nr){
-        strcat(recs, "\n    <");
-        strcat(recs, HOST_COL);
-        strcat(recs, ">");
-        strcat(recs, val);
-        strcat(recs, "</");
-        strcat(recs, HOST_COL);
-        strcat(recs, ">");
+        length += bytes_added(sprintf(recs+length, "%s", "\n    <"));
+        length += bytes_added(sprintf(recs+length, "%s", HOST_COL));
+        length += bytes_added(sprintf(recs+length, "%s", ">"));
+        length += bytes_added(sprintf(recs+length, "%s", val));
+        length += bytes_added(sprintf(recs+length, "%s", "</"));
+        length += bytes_added(sprintf(recs+length, "%s", HOST_COL));
+        length += bytes_added(sprintf(recs+length, "%s", ">"));
       }
       else if(table_num == NODE_TABLE_NUM && i == subnodes_db_url_col_nr){
-        strcat(recs, "\n    <");
-        strcat(recs, SUBNODES_DB_URL_COL);
-        strcat(recs, ">");
-        strcat(recs, val);
-        strcat(recs, "</");
-        strcat(recs, SUBNODES_DB_URL_COL);
-        strcat(recs, ">");
+        length += bytes_added(sprintf(recs+length, "%s", "\n    <"));
+        length += bytes_added(sprintf(recs+length, "%s", SUBNODES_DB_URL_COL));
+        length += bytes_added(sprintf(recs+length, "%s", ">"));
+        length += bytes_added(sprintf(recs+length, "%s", val));
+        length += bytes_added(sprintf(recs+length, "%s", "</"));
+        length += bytes_added(sprintf(recs+length, "%s", SUBNODES_DB_URL_COL));
+        length += bytes_added(sprintf(recs+length, "%s", ">"));
       }
     }
-    strcat(recs, "\n    <");
-    strcat(recs, DBURL_COL);
-    strcat(recs, ">");
-    strcat(recs, base_url);
-    strcat(recs, constructUUID(p, id));
-    strcat(recs, "</");
-    strcat(recs, DBURL_COL);
-    strcat(recs, ">");
-    strcat(recs, "\n  </");
-    strcat(recs, rec_name);
-    strcat(recs, "> ");
+    length += bytes_added(sprintf(recs+length, "%s", "\n    <"));
+    length += bytes_added(sprintf(recs+length, "%s", DBURL_COL));
+    length += bytes_added(sprintf(recs+length, "%s",  ">"));
+    length += bytes_added(sprintf(recs+length, "%s", base_url));
+    length += bytes_added(sprintf(recs+length, "%s", constructUUID(p, id)));
+    length += bytes_added(sprintf(recs+length, "%s", "</"));
+    length += bytes_added(sprintf(recs+length, "%s", DBURL_COL));
+    length += bytes_added(sprintf(recs+length, "%s", ">"));
+    length += bytes_added(sprintf(recs+length, "%s", "\n  </"));
+    length += bytes_added(sprintf(recs+length, "%s", rec_name));
+    length += bytes_added(sprintf(recs+length, "%s", "> "));
     rownum++;
   }
   if(rownum>=MAX_SELECT_ROWS-1){
    ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, p, "WARNING: max number of rows reached by recs_xml_format.");
   }
-  strcat(recs, "\n</");
-  strcat(recs, list_name);
-  strcat(recs, "> ");
+  length += bytes_added(sprintf(recs+length, "%s", "\n</"));
+  length += bytes_added(sprintf(recs+length, "%s", list_name));
+  length += bytes_added(sprintf(recs+length, "%s", "> "));
   
   //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Returning rows");
   //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "%s", recs);
