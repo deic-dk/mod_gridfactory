@@ -211,7 +211,7 @@ static void (*dbd_prepare_fn)(server_rec*, const char*, const char*) = NULL;
 static int MAX_F_SIZE = 256;
 
 /* Max size of all field names. */
-static int MAX_T_F_SIZE = 5120;
+//static int MAX_T_F_SIZE = 5120;
 
 /* Max size (bytes) of response and PUT bodies.
  * This is to protect against memory leaking.
@@ -586,8 +586,8 @@ char* recs_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
 	      //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Checking field %s", fields[i]);
 	      if(priv && checkStr != pub_fields_str && (
 	        checkStr == NULL ||
-	        checkStart != NULL && *checkStart != '\t' ||
-	        checkEnd != NULL && *checkEnd != '\t'
+	        (checkStart != NULL && *checkStart != '\t') ||
+	        (checkEnd != NULL && *checkEnd != '\t')
 	        )){
 	        pub_check[i] = 0;
 	        continue;
@@ -910,8 +910,8 @@ void get_rec_s(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
 void get_rec_ps(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
    char* uuid, int table_num){
 
-    apr_dbd_prepared_t* statement;
-    char* str;
+    apr_dbd_prepared_t* statement = NULL;
+    char* str = NULL;
 
     switch(table_num){
       case JOB_TABLE_NUM:
@@ -952,7 +952,7 @@ void rec_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
     int firstrow = 0;
     char* rec = "";
 
-    int numrows = apr_dbd_num_tuples(dbd->driver,res);
+    //int numrows = apr_dbd_num_tuples(dbd->driver,res);
     int cols = apr_dbd_num_cols(dbd->driver,res);
     int rownum = 0;
     while(rownum<MAX_SELECT_ROWS){
@@ -1057,7 +1057,7 @@ void rec_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
     rec = apr_pstrcat(p, rec, xsl_dir, rec_name, ".xsl\"?>\n<", rec_name, ">", NULL);
     char* tmp_val;
     
-    int numrows = apr_dbd_num_tuples(dbd->driver,res);
+    //int numrows = apr_dbd_num_tuples(dbd->driver,res);
     int cols = apr_dbd_num_cols(dbd->driver,res);
     int rownum = 0;
     while(rownum<MAX_SELECT_ROWS){
@@ -1402,11 +1402,11 @@ int update_rec(apr_pool_t* p, request_rec *r, char* uuid, int table_num) {
      1 -> only csStatus, nodeId or providerInfo to be updated,
      2 -> other than csStatus, nodeId or providerInfo to be updated. */
   int status_only = 0;
+  const char *k = NULL;
+  const char *v = NULL;
   for(index = apr_hash_first(NULL, put_data);
      index; index = apr_hash_next(index)){
-    const char *k;
-    const char *v;
-    apr_hash_this(index, (const void**)&k, NULL, (void**)&v);
+    apr_hash_this(index, &k, NULL, &v);
     if(status_only == 0 && (apr_strnatcmp(k, STATUS_COL) == 0 ||
        apr_strnatcmp(k, NODEID_COL) == 0 ||
        apr_strnatcmp(k, PROVIDERINFO_COL) == 0)){
