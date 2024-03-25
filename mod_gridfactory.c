@@ -1590,7 +1590,7 @@ static int request_handler(apr_pool_t *p, request_rec *r, int uri_len, int table
     /* PUT /db/jobs/UUID */
     /*
      * Test with e.g.
-     * curl --insecure --cert /home/fjob/.globus/usercert.pem --key /home/fjob/.globus/userkey.pem \
+     * curl --insecure --cert usercert.pem --key userkey.pem \
      * --upload-file 3a86aacc-2d5f-11dd-80f2-c3b981785945 \
      * https://localhost/db/jobs/3a86aacc-2d5f-11dd-80f2-c3b981785945
      */
