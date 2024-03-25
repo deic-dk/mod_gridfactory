@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <install4j version="10.0.7" transformSequenceNumber="10">
   <directoryPresets config="./64bits/mod_gridfactory.so" />
-  <application name="GridFactory Apache module" applicationId="0605-8661-3754-8069" mediaDir="./distribution" mediaFilePattern="${compiler:sys.shortName}_${compiler:sys.platform}_${compiler:distro}_${compiler:sys.version}" shortName="mod_gridfactory" publisher="Frederik Orellana, Technical University of Denmark" version="0.1.5" allPathsRelative="true" macVolumeId="dd36dc1ece77f701" javaMinVersion="0" jdkMode="runtimeJre">
+  <application name="GridFactory Apache module" applicationId="0605-8661-3754-8069" mediaDir="./distribution" mediaFilePattern="${compiler:sys.shortName}_${compiler:distro}_${compiler:sys.version}" shortName="mod_gridfactory" publisher="Frederik Orellana, Technical University of Denmark" version="0.1.7" allPathsRelative="true" macVolumeId="dd36dc1ece77f701" javaMinVersion="0" jdkMode="runtimeJre">
     <variables>
-      <variable name="distro" value="fedora" />
-      <variable name="platform" value="x86_64" />
+      <variable name="platform" value="linux" />
+      <variable name="distro" />
     </variables>
   </application>
   <files>
@@ -467,17 +467,16 @@ return console.askYesNo(message, true);
   </installerGui>
   <mediaSets>
     <linuxRPM name="Fedora RPM" id="95" installDir="/" dependencies="apache2" arch="x86_64">
+      <variables>
+        <variable name="distro" value="fedora" />
+      </variables>
       <jreBundle jreBundleSource="none" />
     </linuxRPM>
-    <linuxRPM name="Ubuntu RPM" id="96" installDir="/" arch="x86_64">
-      <exclude>
-        <entry location="usr/lib/httpd" />
-        <entry location="etc/httpd" />
-      </exclude>
+    <linuxDeb name="Linux Deb Archive" id="274" installDir="/">
       <variables>
         <variable name="distro" value="ubuntu" />
       </variables>
       <jreBundle jreBundleSource="none" />
-    </linuxRPM>
+    </linuxDeb>
   </mediaSets>
 </install4j>
