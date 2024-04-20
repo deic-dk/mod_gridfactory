@@ -275,8 +275,8 @@ typedef struct {
 static void*
 do_config(apr_pool_t* p, char* d)
 {
-	/* Apparently ap_log_perror only works for log levels higher than APLOG_INFO,
-	   i.e. not with APLOG_INFO and APLOG_DEBUG. */
+  /* Apparently ap_log_perror only works for log levels higher than APLOG_INFO,
+     i.e. not with APLOG_INFO and APLOG_DEBUG. */
   //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Doing DB config with %s", p);
   dbd_acquire_fn = APR_RETRIEVE_OPTIONAL_FN(ap_dbd_acquire);
   if(dbd_acquire_fn == NULL){
@@ -434,7 +434,7 @@ char** set_fields(apr_pool_t* p, ap_dbd_t* dbd, char* fields_str, char* query){
     int i = 0;
     int first_row_num = 1;
     if(APR_VERSION<130){ // @suppress("Symbol is not resolved")
-    	first_row_num=0;
+      first_row_num=0;
     }
 
     /*ap_dbd_t* dbd = (ap_dbd_t*)apr_pcalloc(p, 256 * sizeof(ap_dbd_t*));
@@ -522,10 +522,10 @@ char* constructUUID(apr_pool_t* p, char* job_id){
   //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Constructing URL from %s", job_id);
   char* uuid = memrchr(job_id, '/', strlen(job_id) - 1);
   if(uuid != NULL){
-  	uuid = uuid + 1;
+    uuid = uuid + 1;
   }
   else{
-  	uuid = job_id;
+    uuid = job_id;
   }
   return uuid;
 }
@@ -576,23 +576,23 @@ char* recs_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
       // To check if a field is a member of pub_fields, just see if pub_fields_str contains
       // "\tfield\t".
       if(rownum>0 && !pub_check[i]){
-      	continue;
+        continue;
       }
       if(rownum==0){
-	      checkStr = strstr(pub_fields_str, fields[i]);
-	      fieldLen = strlen(fields[i]);
-	      checkStart = checkStr-1;
-	      checkEnd = checkStr+fieldLen;
-	      //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Checking field %s", fields[i]);
-	      if(priv && checkStr != pub_fields_str && (
-	        checkStr == NULL ||
-	        (checkStart != NULL && *checkStart != '\t') ||
-	        (checkEnd != NULL && *checkEnd != '\t')
-	        )){
-	        pub_check[i] = 0;
-	        continue;
-	      }
-	      pub_check[i] = 1;
+        checkStr = strstr(pub_fields_str, fields[i]);
+        fieldLen = strlen(fields[i]);
+        checkStart = checkStr-1;
+        checkEnd = checkStr+fieldLen;
+        //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Checking field %s", fields[i]);
+        if(priv && checkStr != pub_fields_str && (
+          checkStr == NULL ||
+          (checkStart != NULL && *checkStart != '\t') ||
+          (checkEnd != NULL && *checkEnd != '\t')
+          )){
+          pub_check[i] = 0;
+          continue;
+        }
+        pub_check[i] = 1;
       }
       val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
       //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "--> %s", val);
@@ -672,7 +672,7 @@ char* recs_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
       val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
       //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "%i/%i --> %s", table_num, i, val);
       if(val == NULL){
-      	continue;
+        continue;
       }
       if(i == id_col_nr){
         id = val;
@@ -985,7 +985,7 @@ void rec_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
       /* we can't break out here or row won't get cleaned up */
     }
     if(rownum>=MAX_SELECT_ROWS-1){
-    	ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, p, "WARNING: max number of rows reached by rec_text_format.");
+      ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, p, "WARNING: max number of rows reached by rec_text_format.");
     }
 
     //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Returning record:");
@@ -995,53 +995,53 @@ void rec_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
 }
 
 static int is_list_field(char* field){
-	// allowedVOs, hypervisors, inputFileURLs, runtimeEnvironments
-	if(strcmp(field, ALLOWED_VOS_COL) == 0){
-		return 1;
-	}
-	else if(strcmp(field, HYPERVISORS_COL) == 0){
-		return 1;
-	}
-	else if(strcmp(field, INPUT_FILE_URLS_COL) == 0){
-		return 1;
-	}
-	else if(strcmp(field, RUNTIME_ENVIRONMENTS_COL) == 0){
-		return 1;
-	}
-	return 0;
+  // allowedVOs, hypervisors, inputFileURLs, runtimeEnvironments
+  if(strcmp(field, ALLOWED_VOS_COL) == 0){
+    return 1;
+  }
+  else if(strcmp(field, HYPERVISORS_COL) == 0){
+    return 1;
+  }
+  else if(strcmp(field, INPUT_FILE_URLS_COL) == 0){
+    return 1;
+  }
+  else if(strcmp(field, RUNTIME_ENVIRONMENTS_COL) == 0){
+    return 1;
+  }
+  return 0;
 }
 
 static int is_out_file_mapping_field(char* field){
-	if(strcmp(field, OUT_FILE_MAPPING_COL) == 0){
-		return 1;
-	}
-	return 0;
+  if(strcmp(field, OUT_FILE_MAPPING_COL) == 0){
+    return 1;
+  }
+  return 0;
 }
 
 static char* list_xml_format(apr_pool_t* p, char* val, char* sub_field){
   char** fields = (char**)apr_pcalloc(p, 256 * sizeof(char**));
   char* tmp_val = "";
-	int cols = tokenize_fields_str(p, val, fields, " ");
-	int i;
-	for(i = 0 ; i < cols ; i++){
-		tmp_val = apr_pstrcat(p, tmp_val, "\n    <", sub_field, ">", fields[i],
-		   "</", sub_field, ">", NULL);
-	}
-	tmp_val = apr_pstrcat(p, tmp_val, "\n  ", NULL);
-	return tmp_val;
+  int cols = tokenize_fields_str(p, val, fields, " ");
+  int i;
+  for(i = 0 ; i < cols ; i++){
+    tmp_val = apr_pstrcat(p, tmp_val, "\n    <", sub_field, ">", fields[i],
+       "</", sub_field, ">", NULL);
+  }
+  tmp_val = apr_pstrcat(p, tmp_val, "\n  ", NULL);
+  return tmp_val;
 }
 
 static char* out_file_map_format(apr_pool_t* p, char* val){
   char** fields = (char**)apr_pcalloc(p, 256 * sizeof(char**));
   char* tmp_val = "";
   int i;
-	int cols = tokenize_fields_str(p, val, fields, " ");
-	for(i = 0 ; i < cols ; i = i + 2){
-		tmp_val = apr_pstrcat(p, tmp_val, "\n    <source>", fields[i],
-		   "</source>", "<destination>", fields[i+1], "</destination>", NULL);
-	}
-	tmp_val = apr_pstrcat(p, tmp_val, "\n  ", NULL);
-	return tmp_val;
+  int cols = tokenize_fields_str(p, val, fields, " ");
+  for(i = 0 ; i < cols ; i = i + 2){
+    tmp_val = apr_pstrcat(p, tmp_val, "\n    <source>", fields[i],
+       "</source>", "<destination>", fields[i+1], "</destination>", NULL);
+  }
+  tmp_val = apr_pstrcat(p, tmp_val, "\n  ", NULL);
+  return tmp_val;
 }
 
 void rec_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
@@ -1073,18 +1073,18 @@ void rec_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
         val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
         //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "--> %s", val);
         if(val && strcmp(val, "") != 0){
-        	// Format allowedVOs, hypervisors, inputFileURLs, runtimeEnvironments
-        	if(is_list_field(fields[i])){
-        		apr_cpystrn(sub_field, fields[i], strlen(fields[i]));
+          // Format allowedVOs, hypervisors, inputFileURLs, runtimeEnvironments
+          if(is_list_field(fields[i])){
+            apr_cpystrn(sub_field, fields[i], strlen(fields[i]));
             tmp_val = list_xml_format(p, val, sub_field);
-        	}
-        	// Format outFileMapping
-        	else if(is_out_file_mapping_field(fields[i])){
-        		tmp_val = out_file_map_format(p, val);
-        	}
-        	else{
-        		tmp_val = val;
-        	}
+          }
+          // Format outFileMapping
+          else if(is_out_file_mapping_field(fields[i])){
+            tmp_val = out_file_map_format(p, val);
+          }
+          else{
+            tmp_val = val;
+          }
           rec = apr_pstrcat(p, rec, "\n  <", fields[i], ">", tmp_val,
              "</", fields[i], ">", NULL);
         }
@@ -1102,7 +1102,7 @@ void rec_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
       /* we can't break out here or row won't get cleaned up */
     }
     if(rownum>=MAX_SELECT_ROWS-1){
-    	ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, p, "WARNING: max number of rows reached by rec_xml_format.");
+      ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, p, "WARNING: max number of rows reached by rec_xml_format.");
     }
 
     rec = apr_pstrcat(p, rec, "\n</", rec_name, "> ", NULL);
@@ -1354,7 +1354,7 @@ static int parse_input_from_put(apr_pool_t* p, request_rec* r, apr_hash_t **form
 }
 
 char* mk_sql_key_values(apr_pool_t* p, apr_hash_t *ht) {
-	char* tmp_query = "";
+  char* tmp_query = "";
   apr_hash_index_t *hi;
   void *val;
   const void *key;
@@ -1445,8 +1445,9 @@ int update_rec(apr_pool_t* p, request_rec *r, char* uuid, int table_num) {
     select_query = apr_pstrcat(p, select_query, NODE_REC_SELECT_Q, NULL);
     get_rec(p, r, uuid, &ret, table_num);
     if(&ret != NULL){
-    	// Get the client DN
-      request_rec* subreq = ap_sub_req_lookup_file("/dev/null", r, 0);
+      // Get the client DN
+      //request_rec* subreq = ap_sub_req_lookup_file("/dev/null", r, 0);
+      request_rec* subreq = ap_sub_req_lookup_uri(r->uri, r, 0);
       const char* client_dn = apr_table_get(subreq->subprocess_env, CLIENT_S_DN_STRING);
       if(ret.providerInfo && strcmp(client_dn, ret.providerInfo) != 0){
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
@@ -1740,9 +1741,9 @@ static int gridfactory_db_handler(request_rec *r) {
 
     int ret = request_handler(p, r, uri_len, table_num);
 
-	  ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "cleaning up pool");
-	  //ap_dbd_t* dbd = dbd_acquire_fn(r);
-	  //apr_pool_destroy(dbd->pool);
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "cleaning up pool");
+    //ap_dbd_t* dbd = dbd_acquire_fn(r);
+    //apr_pool_destroy(dbd->pool);
     apr_pool_destroy(p);
     //apr_pool_clear(r->connection->pool);
 
