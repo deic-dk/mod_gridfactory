@@ -70,8 +70,6 @@
 
 #include <mysql/mysql.h>
 
-module AP_MODULE_DECLARE_DATA authn_dbd_module;
-
 #define JOB_TABLE_NUM 1
 #define HIST_TABLE_NUM 2
 #define NODE_TABLE_NUM 3
@@ -1494,7 +1492,7 @@ int update_rec(apr_pool_t* p, request_rec *r, char* uuid, int table_num) {
     else{
       update_query = apr_pstrcat(p, update_query, " WHERE ", ID_COL, " LIKE '%/", uuid, "'", NULL);
     }
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Query: %s", update_query);
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Query: %s, uuid: %s", update_query, uuid);
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Provider: %s", provider);
     if(apr_dbd_query(dbd->driver, dbd->handle, &nrows, update_query) != 0){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Query execution error in update_rec");
@@ -1615,6 +1613,8 @@ static int request_handler(apr_pool_t *p, request_rec *r, int uri_len, int table
         ok = DECLINED;
       }
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Check: %s", tmpstr);
+      // Remove trailing slash
+      if (r->uri != NULL && r->uri[strlen(r->uri) - 1] == '/') r->uri[strlen(r->uri) - 1] = 0;
       this_uuid = memrchr(r->uri, '/', uri_len);
       apr_cpystrn(this_uuid, this_uuid+1 , uri_len - 1);
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "this_uuid --> %s", this_uuid);
