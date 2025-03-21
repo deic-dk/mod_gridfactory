@@ -70,6 +70,9 @@
 
 #include <mysql/mysql.h>
 
+#include <stdlib.h>
+#include <ctype.h>
+
 #define JOB_TABLE_NUM 1
 #define HIST_TABLE_NUM 2
 #define NODE_TABLE_NUM 3
@@ -229,8 +232,14 @@ static char* FORMAT_STR = "format";
 /* String to use in GET request to require starting at a given record. */
 static char* START_STR = "start";
 
-/* String to use in GET request to require ending at a givenrecord. */
+/* String to use in GET request to require ending at a given record. */
 static char* END_STR = "end";
+
+/* String to use in GET request to require a given user DN. */
+static char* USER_DN_STR = "userInfo";
+
+/* String to use in GET request to require a given provider DN. */
+static char* PROVIDER_DN_STR = "providerInfo";
 
 /* Text format directive. */
 static char* TEXT_FORMAT_STR = "text";
@@ -363,6 +372,42 @@ unsigned long countchr(const char *str, const char *ch)
     }
   }
   return count;
+}
+
+/**
+ * From https://stackoverflow.com/questions/2673207/c-c-url-decode-library
+ */
+
+void urldecode2(char *dst, const char *src)
+{
+	char a, b;
+	while (*src) {
+		if ((*src == '%') &&
+			((a = src[1]) && (b = src[2])) && (isxdigit(a) && isxdigit(b))) {
+			if (a >= 'a')
+				a -= 'a'-'A';
+			if (a >= 'A')
+				a -= ('A' - 10);
+			else
+				a -= '0';
+			if (b >= 'a')
+				b -= 'a'-'A';
+			if (b >= 'A')
+				b -= ('A' - 10);
+			else
+				b -= '0';
+			*dst++ = 16*a+b;
+			src+=3;
+		}
+		else if (*src == '+') {
+			*dst++ = ' ';
+			src++;
+		}
+		else {
+			*dst++ = *src++;
+		}
+	}
+	*dst++ = '\0';
 }
 
 /* From apr_dbd_mysql.c */
@@ -820,7 +865,10 @@ db_result* get_recs(request_rec* r, apr_pool_t* p, db_result* ret, int priv, int
             //return NULL;
           }
         }
-        else if(apr_strnatcmp(subtoken1, START_STR) != 0 && apr_strnatcmp(subtoken1, END_STR) != 0){
+        else if(apr_strnatcmp(subtoken1, START_STR) != 0 &&
+                apr_strnatcmp(subtoken1, END_STR) != 0 &&
+                apr_strnatcmp(subtoken1, USER_DN_STR) != 0 &&
+                apr_strnatcmp(subtoken1, PROVIDER_DN_STR) != 0){
           subtoken2 = strtok_r(NULL, "=", &last1);
           ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "subtoken2: %s", subtoken2);
           query = apr_pstrcat(p, query, " WHERE ", subtoken1, " = '", subtoken2, "'", NULL);
@@ -834,6 +882,16 @@ db_result* get_recs(request_rec* r, apr_pool_t* p, db_result* ret, int priv, int
           subtoken2 = strtok_r(NULL, "=", &last1);
           ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "subtoken2: %s", subtoken2);
           end = atoi(subtoken2);
+        }
+        else if(apr_strnatcmp(subtoken1, USER_DN_STR) == 0){
+          subtoken2 = strtok_r(NULL, "", &last1);
+          ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "subtoken2: %s", subtoken2);
+          query = apr_pstrcat(p, query, " WHERE ", subtoken1, " = '", subtoken2, "'", NULL);
+        }
+        else if(apr_strnatcmp(subtoken1, PROVIDER_DN_STR) == 0){
+          subtoken2 = strtok_r(NULL, "", &last1);
+          ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "subtoken2: %s", subtoken2);
+          query = apr_pstrcat(p, query, " WHERE ", subtoken1, " = '", subtoken2, "'", NULL);
         }
       }
       if(start > 0 && end < 0){
