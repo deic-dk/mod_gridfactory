@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <install4j version="10.0.7" transformSequenceNumber="10">
   <directoryPresets config="./64bits/mod_gridfactory.so" />
-  <application name="GridFactory Apache module" applicationId="0605-8661-3754-8069" mediaDir="./distribution" mediaFilePattern="${compiler:sys.shortName}_${compiler:distro}_${compiler:sys.version}" shortName="mod_gridfactory" publisher="Frederik Orellana, Technical University of Denmark" version="0.1.7" allPathsRelative="true" macVolumeId="dd36dc1ece77f701" javaMinVersion="0" jdkMode="runtimeJre">
+  <application name="GridFactory Apache module" applicationId="0605-8661-3754-8069" mediaDir="./distribution" mediaFilePattern="${compiler:sys.shortName}_${compiler:distro}_${compiler:sys.version}" shortName="mod_gridfactory" publisher="Frederik Orellana, Technical University of Denmark" version="0.1.8" allPathsRelative="true" macVolumeId="dd36dc1ece77f701" javaMinVersion="0" jdkMode="runtimeJre">
     <variables>
       <variable name="platform" value="linux" />
       <variable name="distro" />
