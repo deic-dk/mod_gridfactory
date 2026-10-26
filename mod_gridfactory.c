@@ -363,6 +363,46 @@ static const command_rec command_table[] =
     {NULL}
 };
 
+/* A column name from a request: letters, digits and '_' only, so it can be
+ * placed in SQL as an identifier. */
+static int is_sql_identifier(const char* s){
+  if(s == NULL || *s == '\0'){
+    return 0;
+  }
+  for(; *s; ++s){
+    if(!((*s >= 'a' && *s <= 'z') || (*s >= 'A' && *s <= 'Z') ||
+         (*s >= '0' && *s <= '9') || *s == '_')){
+      return 0;
+    }
+  }
+  return 1;
+}
+
+/* A record id from the URL (job UUID, node MAC address): letters, digits, '-',
+ * '.' and ':' only. It ends up in "LIKE '%/<id>'", so '%' and '_' (LIKE
+ * wildcards) and quotes must never get through. */
+static int is_record_id(const char* s){
+  if(s == NULL || *s == '\0'){
+    return 0;
+  }
+  for(; *s; ++s){
+    if(!((*s >= 'a' && *s <= 'z') || (*s >= 'A' && *s <= 'Z') ||
+         (*s >= '0' && *s <= '9') || *s == '-' || *s == '.' || *s == ':')){
+      return 0;
+    }
+  }
+  return 1;
+}
+
+/* "<column> = '<value>'" with the value escaped by the database driver. */
+static char* sql_condition(apr_pool_t* p, ap_dbd_t* dbd, const char* column, const char* value){
+  const char* escaped = apr_dbd_escape(dbd->driver, p, value == NULL ? "" : value, dbd->handle);
+  if(escaped == NULL){
+    return NULL;
+  }
+  return apr_pstrcat(p, column, " = '", escaped, "'", NULL);
+}
+
 unsigned long countchr(const char *str, const char *ch)
 {
   unsigned long count = 0;
@@ -574,6 +614,24 @@ char* constructUUID(apr_pool_t* p, char* job_id){
 }
 
 // From http://stackoverflow.com/questions/2674312/how-to-append-strings-using-sprintf
+/* Append s to buf (MAX_SIZE bytes) at *len without ever writing past the end;
+ * output that does not fit is cut off. Replaces unbounded sprintf appends that
+ * could overflow the buffer with a large enough result. */
+static void append_str(char* buf, int* len, const char* s){
+  int room, n;
+  if(s == NULL){
+    return;
+  }
+  room = MAX_SIZE - *len;
+  if(room <= 1){
+    return;
+  }
+  n = snprintf(buf + *len, room, "%s", s);
+  if(n > 0){
+    *len += (n < room) ? n : room - 1;
+  }
+}
+
 int bytes_added( int result_of_sprintf ){
     return (result_of_sprintf > 0) ? result_of_sprintf : 0;
 }
@@ -613,7 +671,7 @@ char* recs_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
     if(rv != 0){
       break;
     }
-    length += bytes_added(sprintf(recs+length, "%s", "\n"));
+    append_str(recs, &length, "\n");
     //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "retrieved row %i, cols %i", rownum, cols);
     for(i = 0 ; i < cols ; i++){
       // To check if a field is a member of pub_fields, just see if pub_fields_str contains
@@ -639,14 +697,14 @@ char* recs_text_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
       }
       val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
       //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "--> %s", val);
-      length += bytes_added(sprintf(recs+length, "%s", val));
-      length += bytes_added(sprintf(recs+length, "%s", "\t"));
+      append_str(recs, &length, val);
+      append_str(recs, &length, "\t");
       if(i == id_col_nr){
         uuid = constructUUID(p, val);
       }
     }
-    length += bytes_added(sprintf(recs+length, "%s", base_url));
-    length += bytes_added(sprintf(recs+length, "%s", uuid));
+    append_str(recs, &length, base_url);
+    append_str(recs, &length, uuid);
     /* we can't break out here or row won't get cleaned up */
     rownum++;
   }
@@ -693,11 +751,11 @@ char* recs_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
 
   strcpy(recs, "<?xml version=\"1.0\"?>\n<?xml-stylesheet type=\"text/xsl\" href=\"");
   int length = strlen(recs);
-  length += bytes_added(sprintf(recs+length, "%s", xsl_dir));
-  length += bytes_added(sprintf(recs+length, "%s", list_name));
-  length += bytes_added(sprintf(recs+length, "%s", ".xsl\"?>\n<"));
-  length += bytes_added(sprintf(recs+length, "%s", list_name));
-  length += bytes_added(sprintf(recs+length, "%s", ">"));
+  append_str(recs, &length, xsl_dir);
+  append_str(recs, &length, list_name);
+  append_str(recs, &length, ".xsl\"?>\n<");
+  append_str(recs, &length, list_name);
+  append_str(recs, &length, ">");
   //int numrows = apr_dbd_num_tuples(dbd->driver,res);
   int cols = apr_dbd_num_cols(dbd->driver,res);
   int rownum = 0;
@@ -707,9 +765,9 @@ char* recs_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
     if (rv != 0) {
       break;
     }
-    length += bytes_added(sprintf(recs+length, "%s", "\n  <"));
-    length += bytes_added(sprintf(recs+length, "%s", rec_name));
-    length += bytes_added(sprintf(recs+length, "%s", ">"));
+    append_str(recs, &length, "\n  <");
+    append_str(recs, &length, rec_name);
+    append_str(recs, &length, ">");
     //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "cols: %i, %i, %i", status_col_nr, host_col_nr, subnodes_db_url_col_nr);
     for (i = 0 ; i < cols ; i++) {
       val = (char*) apr_dbd_get_entry(dbd->driver, row, i);
@@ -719,70 +777,70 @@ char* recs_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t *res,
       }
       if(i == id_col_nr){
         id = val;
-        length += bytes_added(sprintf(recs+length, "%s", "\n    <"));
-        length += bytes_added(sprintf(recs+length, "%s", ID_COL));
-        length += bytes_added(sprintf(recs+length, "%s", ">"));
-        length += bytes_added(sprintf(recs+length, "%s", val));
-        length += bytes_added(sprintf(recs+length, "%s", "</"));
-        length += bytes_added(sprintf(recs+length, "%s", ID_COL));
-        length += bytes_added(sprintf(recs+length, "%s", ">"));
+        append_str(recs, &length, "\n    <");
+        append_str(recs, &length, ID_COL);
+        append_str(recs, &length, ">");
+        append_str(recs, &length, val);
+        append_str(recs, &length, "</");
+        append_str(recs, &length, ID_COL);
+        append_str(recs, &length, ">");
       }
       else if((table_num == JOB_TABLE_NUM || table_num == HIST_TABLE_NUM)  && i == name_col_nr){
-        length += bytes_added(sprintf(recs+length, "%s", "\n    <"));
-        length += bytes_added(sprintf(recs+length, "%s", NAME_COL));
-        length += bytes_added(sprintf(recs+length, "%s", ">"));
-        length += bytes_added(sprintf(recs+length, "%s", val));
-        length += bytes_added(sprintf(recs+length, "%s", "</"));
-        length += bytes_added(sprintf(recs+length, "%s", NAME_COL));
-        length += bytes_added(sprintf(recs+length, "%s", ">"));
+        append_str(recs, &length, "\n    <");
+        append_str(recs, &length, NAME_COL);
+        append_str(recs, &length, ">");
+        append_str(recs, &length, val);
+        append_str(recs, &length, "</");
+        append_str(recs, &length, NAME_COL);
+        append_str(recs, &length, ">");
       }
       else if((table_num == JOB_TABLE_NUM || table_num == HIST_TABLE_NUM)  && i == status_col_nr){
-        length += bytes_added(sprintf(recs+length, "%s", "\n    <"));
-        length += bytes_added(sprintf(recs+length, "%s", STATUS_COL));
-        length += bytes_added(sprintf(recs+length, "%s", ">"));
-        length += bytes_added(sprintf(recs+length, "%s", val));
-        length += bytes_added(sprintf(recs+length, "%s", "</"));
-        length += bytes_added(sprintf(recs+length, "%s", STATUS_COL));
-        length += bytes_added(sprintf(recs+length, "%s", ">"));
+        append_str(recs, &length, "\n    <");
+        append_str(recs, &length, STATUS_COL);
+        append_str(recs, &length, ">");
+        append_str(recs, &length, val);
+        append_str(recs, &length, "</");
+        append_str(recs, &length, STATUS_COL);
+        append_str(recs, &length, ">");
       }
       else if(table_num == NODE_TABLE_NUM && i == host_col_nr){
-        length += bytes_added(sprintf(recs+length, "%s", "\n    <"));
-        length += bytes_added(sprintf(recs+length, "%s", HOST_COL));
-        length += bytes_added(sprintf(recs+length, "%s", ">"));
-        length += bytes_added(sprintf(recs+length, "%s", val));
-        length += bytes_added(sprintf(recs+length, "%s", "</"));
-        length += bytes_added(sprintf(recs+length, "%s", HOST_COL));
-        length += bytes_added(sprintf(recs+length, "%s", ">"));
+        append_str(recs, &length, "\n    <");
+        append_str(recs, &length, HOST_COL);
+        append_str(recs, &length, ">");
+        append_str(recs, &length, val);
+        append_str(recs, &length, "</");
+        append_str(recs, &length, HOST_COL);
+        append_str(recs, &length, ">");
       }
       else if(table_num == NODE_TABLE_NUM && i == subnodes_db_url_col_nr){
-        length += bytes_added(sprintf(recs+length, "%s", "\n    <"));
-        length += bytes_added(sprintf(recs+length, "%s", SUBNODES_DB_URL_COL));
-        length += bytes_added(sprintf(recs+length, "%s", ">"));
-        length += bytes_added(sprintf(recs+length, "%s", val));
-        length += bytes_added(sprintf(recs+length, "%s", "</"));
-        length += bytes_added(sprintf(recs+length, "%s", SUBNODES_DB_URL_COL));
-        length += bytes_added(sprintf(recs+length, "%s", ">"));
+        append_str(recs, &length, "\n    <");
+        append_str(recs, &length, SUBNODES_DB_URL_COL);
+        append_str(recs, &length, ">");
+        append_str(recs, &length, val);
+        append_str(recs, &length, "</");
+        append_str(recs, &length, SUBNODES_DB_URL_COL);
+        append_str(recs, &length, ">");
       }
     }
-    length += bytes_added(sprintf(recs+length, "%s", "\n    <"));
-    length += bytes_added(sprintf(recs+length, "%s", DBURL_COL));
-    length += bytes_added(sprintf(recs+length, "%s",  ">"));
-    length += bytes_added(sprintf(recs+length, "%s", base_url));
-    length += bytes_added(sprintf(recs+length, "%s", constructUUID(p, id)));
-    length += bytes_added(sprintf(recs+length, "%s", "</"));
-    length += bytes_added(sprintf(recs+length, "%s", DBURL_COL));
-    length += bytes_added(sprintf(recs+length, "%s", ">"));
-    length += bytes_added(sprintf(recs+length, "%s", "\n  </"));
-    length += bytes_added(sprintf(recs+length, "%s", rec_name));
-    length += bytes_added(sprintf(recs+length, "%s", "> "));
+    append_str(recs, &length, "\n    <");
+    append_str(recs, &length, DBURL_COL);
+    append_str(recs, &length,  ">");
+    append_str(recs, &length, base_url);
+    append_str(recs, &length, constructUUID(p, id));
+    append_str(recs, &length, "</");
+    append_str(recs, &length, DBURL_COL);
+    append_str(recs, &length, ">");
+    append_str(recs, &length, "\n  </");
+    append_str(recs, &length, rec_name);
+    append_str(recs, &length, "> ");
     rownum++;
   }
   if(rownum>=MAX_SELECT_ROWS-1){
    ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, p, "WARNING: max number of rows reached by recs_xml_format.");
   }
-  length += bytes_added(sprintf(recs+length, "%s", "\n</"));
-  length += bytes_added(sprintf(recs+length, "%s", list_name));
-  length += bytes_added(sprintf(recs+length, "%s", "> "));
+  append_str(recs, &length, "\n</");
+  append_str(recs, &length, list_name);
+  append_str(recs, &length, "> ");
 
   //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Returning rows");
   //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "%s", recs);
@@ -839,10 +897,21 @@ db_result* get_recs(request_rec* r, apr_pool_t* p, db_result* ret, int priv, int
 
     ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "Query0: %s", query);
 
+    ap_dbd_t* dbd;// = (ap_dbd_t*)apr_pcalloc(p, sizeof(ap_dbd_t*));
+    dbd = dbd_acquire_fn(r);
+    if(dbd == NULL){
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to acquire database connection.");
+        return NULL;
+    }
+
     /* For URLs like
      * GET /db/jobs/?format=text|xml&csStatus=ready|requested|running&...
-     * append WHERE statements to query.*/
+     * append WHERE conditions to query. Column names must be plain identifiers,
+     * values are escaped by the database driver, and several conditions are
+     * joined with AND. */
     if(r->args && countchr(r->args, "=") > 0){
+      const char* where_word = " WHERE ";
+      char* cond;
       char buffer[strlen(r->args)+1];
       snprintf(buffer, strlen(r->args)+1, "%s", r->args);
       ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "args: %s", buffer);
@@ -871,7 +940,12 @@ db_result* get_recs(request_rec* r, apr_pool_t* p, db_result* ret, int priv, int
                 apr_strnatcmp(subtoken1, PROVIDER_DN_STR) != 0){
           subtoken2 = strtok_r(NULL, "=", &last1);
           ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "subtoken2: %s", subtoken2);
-          query = apr_pstrcat(p, query, " WHERE ", subtoken1, " = '", subtoken2, "'", NULL);
+          if(!is_sql_identifier(subtoken1) || (cond = sql_condition(p, dbd, subtoken1, subtoken2)) == NULL){
+            ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid selector: %s", subtoken1);
+            return NULL;
+          }
+          query = apr_pstrcat(p, query, where_word, cond, NULL);
+          where_word = " AND ";
         }
         else if(apr_strnatcmp(subtoken1, START_STR) == 0){
           subtoken2 = strtok_r(NULL, "=", &last1);
@@ -886,12 +960,20 @@ db_result* get_recs(request_rec* r, apr_pool_t* p, db_result* ret, int priv, int
         else if(apr_strnatcmp(subtoken1, USER_DN_STR) == 0){
           subtoken2 = strtok_r(NULL, "", &last1);
           ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "subtoken2: %s", subtoken2);
-          query = apr_pstrcat(p, query, " WHERE ", subtoken1, " = '", subtoken2, "'", NULL);
+          if((cond = sql_condition(p, dbd, subtoken1, subtoken2)) == NULL){
+            return NULL;
+          }
+          query = apr_pstrcat(p, query, where_word, cond, NULL);
+          where_word = " AND ";
         }
         else if(apr_strnatcmp(subtoken1, PROVIDER_DN_STR) == 0){
           subtoken2 = strtok_r(NULL, "", &last1);
           ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "subtoken2: %s", subtoken2);
-          query = apr_pstrcat(p, query, " WHERE ", subtoken1, " = '", subtoken2, "'", NULL);
+          if((cond = sql_condition(p, dbd, subtoken1, subtoken2)) == NULL){
+            return NULL;
+          }
+          query = apr_pstrcat(p, query, where_word, cond, NULL);
+          where_word = " AND ";
         }
       }
       if(start > 0 && end < 0){
@@ -913,12 +995,6 @@ db_result* get_recs(request_rec* r, apr_pool_t* p, db_result* ret, int priv, int
 
    /* If outputting text, set fields. Be ware, after select,
       results MUST be traversed before another select can be done. */
-    ap_dbd_t* dbd;// = (ap_dbd_t*)apr_pcalloc(p, sizeof(ap_dbd_t*));
-    dbd = dbd_acquire_fn(r);
-    if(dbd == NULL){
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to acquire database connection.");
-        return NULL;
-    }
     if((fields=set_fields(p, dbd, fields_str, fields_query))==NULL){
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to set fields.");
       return NULL;
@@ -1175,6 +1251,11 @@ void rec_xml_format(apr_pool_t* p, ap_dbd_t* dbd, apr_dbd_results_t* res,
  */
 void get_rec(apr_pool_t* p, request_rec *r, char* uuid, db_result* ret, int table_num){
 
+    if(!is_record_id(uuid)){
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid record id.");
+      return;
+    }
+
     char* token;
     char* subtoken1;
     char* subtoken2;
@@ -1409,21 +1490,36 @@ static int parse_input_from_put(apr_pool_t* p, request_rec* r, apr_hash_t **form
 
 }
 
-char* mk_sql_key_values(apr_pool_t* p, apr_hash_t *ht) {
+/* ", key = 'value', ..." for an INSERT/UPDATE; NULL if a key is not a plain
+ * column name. Values are escaped by the database driver. */
+char* mk_sql_key_values(apr_pool_t* p, ap_dbd_t* dbd, apr_hash_t *ht) {
   char* tmp_query = "";
+  char* cond;
   apr_hash_index_t *hi;
   void *val;
   const void *key;
-  //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "Adding key/value pairs to query %s", tmp_query);
   for(hi = apr_hash_first(p, ht); hi; hi = apr_hash_next(hi)){
     apr_hash_this(hi, &key, NULL, &val);
-    //ap_log_perror(APLOG_MARK, APLOG_NOTICE, 0, p, "%s --> %s", (char *) key, (char *) val);
-    tmp_query = apr_pstrcat(p, tmp_query, ", ", key, " = '", val, "'", NULL);
+    if(!is_sql_identifier(key) || (cond = sql_condition(p, dbd, key, val)) == NULL){
+      return NULL;
+    }
+    tmp_query = apr_pstrcat(p, tmp_query, ", ", cond, NULL);
   }
   return tmp_query;
 }
 
 int update_rec(apr_pool_t* p, request_rec *r, char* uuid, int table_num) {
+
+  if(!is_record_id(uuid)){
+    ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid record id.");
+    return HTTP_BAD_REQUEST;
+  }
+  ap_dbd_t* dbd = dbd_acquire_fn(r);
+  if(dbd == NULL){
+    ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to acquire database connection.");
+    return HTTP_INTERNAL_SERVER_ERROR;
+  }
+  char* cond;
 
   /* Read and parse the data. */
   apr_hash_t* put_data = NULL;
@@ -1478,8 +1574,14 @@ int update_rec(apr_pool_t* p, request_rec *r, char* uuid, int table_num) {
       status_only = 2;
     }
     if(apr_strnatcmp(k, LASTMODIFIED_COL) != 0){
-      update_query = apr_pstrcat(p, update_query, ", ", ap_escape_html(p, k), " = '",
-                        ap_escape_html(p, v), "'", NULL);
+      /* Values stay HTML-escaped as before (they are shown in the XML listings),
+         and are now also escaped for SQL; keys must be plain column names. */
+      if(!is_sql_identifier(k) ||
+         (cond = sql_condition(p, dbd, k, ap_escape_html(p, v))) == NULL){
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid field in update.");
+        return HTTP_BAD_REQUEST;
+      }
+      update_query = apr_pstrcat(p, update_query, ", ", cond, NULL);
     }
   }
 
@@ -1516,11 +1618,6 @@ int update_rec(apr_pool_t* p, request_rec *r, char* uuid, int table_num) {
 
   /* Now update the database record. */
   config_rec* conf = (config_rec*)ap_get_module_config(r->per_dir_config, &gridfactory_module);
-  ap_dbd_t* dbd = dbd_acquire_fn(r);
-  if(dbd == NULL){
-    ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Failed to acquire database connection.");
-    return HTTP_INTERNAL_SERVER_ERROR;
-  }
 
   if(table_num == JOB_TABLE_NUM && conf->ps_ != NULL && apr_strnatcasecmp(conf->ps_, "On") == 0 &&
      status_only == 0){
@@ -1540,8 +1637,12 @@ int update_rec(apr_pool_t* p, request_rec *r, char* uuid, int table_num) {
     // If a nodeInformation record does not exist, create it.
     if(table_num == NODE_TABLE_NUM){
       if(strcmp(ret.res, "") == 0){
-        update_query = apr_pstrcat(p, NODE_REC_INSERT_Q,
-           mk_sql_key_values(p, put_data), NULL);
+        char* key_values = mk_sql_key_values(p, dbd, put_data);
+        if(key_values == NULL){
+          ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Invalid field in node record.");
+          return HTTP_BAD_REQUEST;
+        }
+        update_query = apr_pstrcat(p, NODE_REC_INSERT_Q, key_values, NULL);
       }
       else{
         update_query = apr_pstrcat(p, update_query, " WHERE ", ID_COL, " = '", uuid, "'", NULL);
@@ -1700,9 +1801,11 @@ static int gridfactory_db_handler(request_rec *r) {
     // This is set to 1, 2 or 3 in each of the above cases
     int table_num = 0;
 
-    // Create a memory pool for this session
+    // Create a memory pool for this request. A child of the request pool, so
+    // the early returns below (e.g. requests for other handlers) no longer leave
+    // it behind in the connection pool until the connection closes.
     apr_pool_t *p;
-    apr_status_t rv = apr_pool_create(&p, r->connection->pool);
+    apr_status_t rv = apr_pool_create(&p, r->pool);
     if (rv != APR_SUCCESS) {
       ap_log_rerror(APLOG_MARK, APLOG_CRIT, rv, r, "Failed to create subpool for gridfactory_module");
       return -1;
